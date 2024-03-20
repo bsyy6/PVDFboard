@@ -1,10 +1,10 @@
 # Ignoring files according to https://microchipdeveloper.com/mplabx:version-control-working-with
-/PVDFboard_2.7.X/.generated_files/**
-/PVDFboard_2.7.X/build/**
-/PVDFboard_2.7.X/dist/**
-/PVDFboard_2.7.X/nbproject/Makefile-*
-/PVDFboard_2.7.X/nbproject/Package-*
-/PVDFboard_2.7.X/nbproject/private/**
+**/*.X/.generated_files/**
+**/*.X/build/**
+**/*.X/dist/**
+**/*.X/nbproject/Makefile-*
+**/*.X/nbproject/Package-*
+**/*.X/nbproject/private/**
 
 
 # more unnecessary files
