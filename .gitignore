@@ -1,5 +1,5 @@
 # Ignoring files according to https://microchipdeveloper.com/mplabx:version-control-working-with
-/PVDFboard_2.7.X/.generated_files/
+/PVDFboard_2.7.X/.generated_files/*
 /PVDFboard_2.7.X/build/
 /PVDFboard_2.7.X/dist/
 /PVDFboard_2.7.X/nbproject/Makefile-*
