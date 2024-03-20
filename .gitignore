@@ -1,10 +1,10 @@
 # Ignoring files according to https://microchipdeveloper.com/mplabx:version-control-working-with
-/PVDFboard_2.7.X/.generated_files/*
-/PVDFboard_2.7.X/build/
-/PVDFboard_2.7.X/dist/
+/PVDFboard_2.7.X/.generated_files/**
+/PVDFboard_2.7.X/build/**
+/PVDFboard_2.7.X/dist/**
 /PVDFboard_2.7.X/nbproject/Makefile-*
 /PVDFboard_2.7.X/nbproject/Package-*
-/PVDFboard_2.7.X/nbproject/private/
+/PVDFboard_2.7.X/nbproject/private/**
 
 
 # more unnecessary files
@@ -19,16 +19,16 @@
 *.o
 *.sdb
 *.obj.dmp
-html/
-nbproject/private/
+html/**
+nbproject/private/**
 nbproject/Package-*.bash
-build/
-nbbuild/
-dist/
-nbdist/
+build/**
+nbbuild/**
+dist/**
+nbdist/**
 nbactions.xml
 nb-configuration.xml
 funclist
 nbproject/Makefile-*
-disassembly/
+disassembly/*
 *.map
