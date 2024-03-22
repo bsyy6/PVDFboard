@@ -49,31 +49,31 @@
 #include <libpic30.h>
 #include <stdbool.h> 
 
-#define X 				5                  // Number of ms to send bytes with UART, we are not sending ms but info for motors 
+#define X 				 5                   // Number of ms to send bytes with UART, we are not sending ms but info for motors 
 
 // MOTOR PORTS
-#define MOT1             LATAbits.LATA4       // Motor 1 activation
-#define MOT2             LATAbits.LATA6       // Motor 2 activation
+#define MOT1             LATAbits.LATA4      // Motor 1 activation
+#define MOT2             LATAbits.LATA6      // Motor 2 activation
 
 // LED
-#define REDLED              PORTBbits.RB12     // RED LED (RGB)
-#define GREENLED             PORTBbits.RB13      // GREEN LED (RGB)
-#define BLUELED             PORTBbits.RB14      // BLUE LED (RGB)
+#define REDLED           PORTBbits.RB12      // RED LED (RGB)
+#define GREENLED         PORTBbits.RB13      // GREEN LED (RGB)
+#define BLUELED          PORTBbits.RB14      // BLUE LED (RGB)
 
 // BLUETOOTH
-#define BT_WAKEUP             PORTBbits.RB9      // BLUE LED (RGB)
-#define BT_RESET             PORTBbits.RB8      // BLUE LED (RGB)
+#define BT_WAKEUP        PORTBbits.RB9     
+#define BT_RESET         PORTBbits.RB8     
 
 
 // DEFINE PARAMETERS
-#define wLenght        10 // lunghezza del buffer di acquisizione dell'adc, acquisendo 1 campione ogni 1 ms, sarà pieno dopo 10 ms visto che legge un campione per sensore 
-#define windowLenght   10 // Event detection window length, 10ms
-#define nSensors       2  // max number of sensors to read (5)
-#define DutyCycleT     0x9   //duty cycle per attivare i motori di uno spike nel caso di evento di tocco 80%
-#define DurationT      0x0F  // durata dello spike per l'evento di tocco 150ms
-#define DutyCycleR     0x9   //duty cycle per attivare i motori di uno spike nel caso di evento di rilascio 80%
-#define DurationR      0x0F  // durata dello spike per l'evento di tocco 150ms
-#define ADCBufferLength 20 // ADC Buffer length, 20ms 
+#define wLenght        10   // lunghezza del buffer di acquisizione dell'adc, acquisendo 1 campione ogni 1 ms, sarà pieno dopo 10 ms visto che legge un campione per sensore 
+#define windowLenght   10   // Event detection window length, 10ms
+#define nSensors       2    // number of sensors to read
+#define DutyCycleT     0x09   //duty cycle per attivare i motori di uno spike nel caso di evento di tocco 80%
+#define DurationT      0x0F   // durata dello spike per l'evento di tocco 150ms
+#define DutyCycleR     0x9    //duty cycle per attivare i motori di uno spike nel caso di evento di rilascio 80%
+#define DurationR      0x0F   // durata dello spike per l'evento di tocco 150ms
+#define ADCBufferLength 20    // ADC Buffer length, 20ms 
 
 // VARIABLES
 
@@ -158,7 +158,7 @@ unsigned char ContactEvent[nSensors] = {0};            // Indicates that an appl
 unsigned char ReleaseEvent[nSensors] = {0};            // Indicates that a release of pressure occurred
 unsigned char MotorsActivation[nSensors] = {0};        // Temporary vector of variables to store the information regarding the activation of the 5 sensors to be sent to the motors
 unsigned int tRefractory_max = 140;                    // Time to wait before activating motors after an event detection
-unsigned int tLed_max = 200;                    // Time to wait before activating motors after an event detection
+unsigned int tLed_max = 200;                           //
 
 /// COUNTERS FOR TIME INTERRUPTS
 unsigned int CountVibr1 = 0;
@@ -170,18 +170,18 @@ unsigned int redtime = 0;
 unsigned int Timer = 0;                             //Variable to send to SW as timestamp (100Hz)
 
 // SERIAL COMMUNICATION
-#define OutputBufferLength 23       //Serial command to be transmitted to interface (43 max length with 5 sensors)
+#define OutputBufferLength 23           //Serial command to be transmitted to interface (43 max length with 5 sensors)
 #define InputBufferLength  10 //15      //Serial command to be received from interface
-unsigned char OutputBuffer[OutputBufferLength] = {0};  // uint8_t is an 8-bit unsigned number, used to explicit 
-unsigned int InputBuffer[InputBufferLength] = {0};  //we want a number and because char may not be 8 bit in all platforms  
+unsigned char OutputBuffer[OutputBufferLength] = {0};  
+unsigned int InputBuffer[InputBufferLength] = {0};  
 
-unsigned char header[2] = {0xA1,0xA2};                 // delimeter to separate the UART byte output
+unsigned char header[2] = {0xA1,0xA2};               
 unsigned char tail[2] = {0xA2,0xA1};
 
 unsigned char checkCOM = 0;
 unsigned char StartRX = 0;             //wait StartRX=1 for enabling serial communication
-unsigned char ind=0;                  // shifts RX buffer
-unsigned char NewDataArrived = 0;    // Flag to signal new data in RX
+unsigned char ind=0;                   // shifts RX buffer
+unsigned char NewDataArrived = 0;     // Flag to signal new data in RX
 unsigned char SendData = 0;          // Flag to allow sending data at 100Hz
 unsigned char aux = 0;                // Used to populate properly the output buffer
 unsigned char StartPoint = 0;         // Reading of data from input buffers

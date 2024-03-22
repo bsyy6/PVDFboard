@@ -225,22 +225,22 @@ void init_uart(void){
     
     U1BRG = 15;                      // Set Baud Rate to 62500 (=8 IF 115200)
     
-    ANSBbits.ANSB2 = 0;       // HERE LIED AN ERROR!! RX pin is shared with AN4 = RB2. We must set as digital to make it work.
+    ANSBbits.ANSB2 = 0;             // HERE LIED AN ERROR!! RX pin is shared with AN4 = RB2. We must set as digital to make it work.
     U1STAbits.UTXISEL0 = 0;         //Interrupt when the last character is shifted out 
     U1STAbits.UTXISEL1 = 1;         //of the Transmit Shift Register; all transmit operation completed  (01))
     
     U1STAbits.URXISEL0 = 0;         //Interrupt at every new word in RX buffer 
     U1STAbits.URXISEL1 = 0;
     
-    IPC2bits.U1RXIP0 = 1;     // Give the receiving message a higher priority than everything else 
-    IPC2bits.U1RXIP1 = 1;   // PRIORITY = 8
+    IPC2bits.U1RXIP0 = 1;           // Give the receiving message a higher priority than everything else 
+    IPC2bits.U1RXIP1 = 1;           // PRIORITY = 8
     IPC2bits.U1RXIP2 = 1;
     
-    IPC3bits.U1TXIP0 = 0;     // Give the transmission message a lower priority than everything else 
-    IPC3bits.U1TXIP1 = 1;   // PRIORITY = 2
+    IPC3bits.U1TXIP0 = 0;           // Give the transmission message a lower priority than everything else 
+    IPC3bits.U1TXIP1 = 1;           // PRIORITY = 2
     IPC3bits.U1TXIP2 = 0;
-    //ANSBbits.ANSB7 = 0; // Disable Analog port for U1TX
-    //TRISBbits.TRISB7 = 1; // Quando così è set come input (1) U1TX 
+    //ANSBbits.ANSB7 = 0;           // Disable Analog port for U1TX
+    //TRISBbits.TRISB7 = 1;         // Quando così è set come input (1) U1TX 
     
     IEC0bits.U1TXIE = 0;            // Enable UART TX interrupt
     IFS0bits.U1RXIF = 0;
@@ -300,28 +300,21 @@ void Save_EEPROM(int data, int address){
 ////////////////////////////////////////////////////////////////////////////////
 
 void init_ADC(void){
-    PMD1bits.ADC1MD = 0;
-    AD1CON1bits.ADON = 0;       // Disable ADC, better to do this before changing settings
+    PMD1bits.ADC1MD = 0;        // Enables clock and all registers associated with ADC.
+    AD1CON1bits.ADON = 0;       // Turn off.
     AD1CON1bits.ADSIDL = 0;     // Continue module operation in Idle mode
     AD1CON1bits.FORM = 00;      // Integer (0000 00dd dddd dddd) 0 - 1023
     AD1CON1bits.SSRC = 0b111;   // Internal counter ends sampling and starts conversion (auto-convert) - Trigger source
     AD1CON1bits.ASAM = 0;       // Sampling begins immediately after last conversion completes; SAMP bit is automatically set
     AD1CON1bits.SAMP = 0;       // A/D sample/hold amplifiers are holding,  manual command to start the sampling 
-    //AD1CON1bits.DONE = 0;       //A/D conversion is not done or has not started solo lettura non ha senso metterlo
+    //AD1CON1bits.DONE = 0;       //A/D conversion is not done or has not started (READ ONLY)
             
-    //Configure port pins as analog inputs, on AD1PCFG registers they are by default analog inputs, so we must configure only the TRIS 
-    //PVDF1OUT & PVDF2OUT
-    ANSAbits.ANSA0 = 1;         //Enable RA0 to use as analog input
-    ANSAbits.ANSA2 = 1;         //Enable RA2 to use as analog input
+    //PVDF1OUT & PVDF2OUT    
+    ANSAbits.ANSA0 = 1;         // Enable RA0 to use as analog input
     TRISAbits.TRISA0 = 1;       // RA0 as input
+    
+    ANSAbits.ANSA2 = 1;         // Enable RA2 to use as analog input
     TRISAbits.TRISA2 = 1;       // RA2 as input
-    //ANSAbits.ANSA3 = 1;         //Enable RA3 to use as analog input
-    //ANSBbits.ANSB4 = 1;         //Enable RB4 to use as analog input
-    //ANSBbits.ANSB15 = 1;        //Enable RB15 to use as analog input
-    
-    //TRISAbits.TRISA3 = 1;       // RA3 as input
-    
-    
     
     //Select the voltage reference source
     AD1CON2bits.VCFG =0b000;        // Configure A/D voltage reference Vr+ and Vr- from AVdd and AVss (VCFG<2:0>=000),
