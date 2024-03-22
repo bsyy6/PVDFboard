@@ -9,27 +9,12 @@
 
 /* v3.0   * Reading of 2 analog piezoelectric (PVDF) sensor, sampled at 1KHz
  * 
- * /////////////////////////////////////////////////////////////////////////////
- * ATTENTION!! Define wLenght, windowLenght and maxEvent so that maxEvent is a positive integer number e wLenght > windowLenght
- * Suggested numbers
- * /////////////////////////////////////////////////////////////////////////////
+ * ------------ Testing parts ----------
+ * - only UART tested.
  * 
- * Timer 1 runs at 1KHz, its interrupt handles:
- * - counter --> needed for the sensor acquisition, counter resetted if counter>X
- * - temp --> to build the delay function in ms
- * - start the ADC
- * 
- * ADC Interrupt --> sampling frequency 1KHz, started by Timer 1
- * - it filters the data and it fills a buffer. After the buffer reached a certain capacity specified by 
- *   wLenght (#define) it sets a flag and start a copy of this buffer. The evenDetection function will work on this buffer.
- *
- * Main:
- * - if the copyFlag is set, the function copyBuffer copies the ADC buffer into another one.
- * - Once the copy is done, the checkEvent flag is set.
- * - the eventDetection function starts and it outputs an event evaluating the samples inside a certain window of size windowLenght (#define). 
- *   Inside eventDetectio checkEvent increments until it reaches the maximum possible events specified by maxEvent (#define) and then it is cleared. 
- *   Once cleared a new copy can start.
- * 
+ * - results:
+ *  
+ *  
  * UART transmission of sensors data
  * - BAUDRATE to set on the Serial Terminal Port is 62500 
  * - Not used. First byte sent by the main, the following bytes are sent by interrupt
@@ -49,7 +34,7 @@
 #include <libpic30.h>
 #include <stdbool.h> 
 
-#define X 				 5                   // Number of ms to send bytes with UART, we are not sending ms but info for motors 
+
 
 // MOTOR PORTS
 #define MOT1             LATAbits.LATA4      // Motor 1 activation
@@ -179,12 +164,12 @@ unsigned char header[2] = {0xA1,0xA2};
 unsigned char tail[2] = {0xA2,0xA1};
 
 unsigned char checkCOM = 0;
-unsigned char StartRX = 0;             //wait StartRX=1 for enabling serial communication
+unsigned char StartRX = 0;             // wait StartRX=1 for enabling serial communication
 unsigned char ind=0;                   // shifts RX buffer
-unsigned char NewDataArrived = 0;     // Flag to signal new data in RX
-unsigned char SendData = 0;          // Flag to allow sending data at 100Hz
-unsigned char aux = 0;                // Used to populate properly the output buffer
-unsigned char StartPoint = 0;         // Reading of data from input buffers
+unsigned char NewDataArrived = 0;      // Flag to signal new data in RX
+unsigned char SendData = 0;            // Flag to allow sending data at 100Hz
+unsigned char aux = 0;                 // Used to populate properly the output buffer
+unsigned char StartPoint = 0;          // Reading of data from input buffers
 unsigned char OutByteToSend = 1;
 
 unsigned char CircledBuffer = 0;     // for data acquisition
@@ -206,7 +191,6 @@ void set_LED(char led);
 //Handler interrupt
 void __attribute__((__interrupt__, no_auto_psv)) _T1Interrupt(void){ //@1KHz
     
-    unsigned int q = 0;
     count++;                            // Every 1 ms T1 interrupt increase count
 
     CountVibr1++;
@@ -221,20 +205,23 @@ void __attribute__((__interrupt__, no_auto_psv)) _T1Interrupt(void){ //@1KHz
         SendData=1;   //100Hz
         Timer++;
     }
-
-    for (q=0;q<ActiveSens;q++) tRefractory[q]++;         // to avoid double detection of the same contact event
-
+    unsigned int q ; 
+    for (q=0; q<ActiveSens; q++)
+    {
+        // to avoid double detection of the same contact event
+        tRefractory[q]++;
+    }
+    
     // ADC enable to sample the analog input
     p = 0;
     IFS0bits.AD1IF = 0;
     IEC0bits.AD1IE = 1;  // Enable the interrupts while reading all five sensors
 
-    //for (i=0; i<ActiveSens/2; i++){      // TO read two sensors at a time
 
     configure_sequence_MUXA(p,p+1);   // Create the sequence of channels for MUXA to read
     AD1CON1bits.ASAM = 1;      // Start the sampling of the channels in sequence 
     AD1CON1bits.ADON = 1;      // We can only activate the ADC here because to change the settings it must be off 
-    while (!IFS0bits.AD1IF){} // We wait for the reading to finish
+    while (!IFS0bits.AD1IF){}  // We wait for the reading to finish
     AD1CON1bits.ADON = 0;
     IFS0bits.AD1IF = 0;
     PVDFsensor[p] = ADC1BUF0;         // Read the AN9 channel conversion result
@@ -245,19 +232,7 @@ void __attribute__((__interrupt__, no_auto_psv)) _T1Interrupt(void){ //@1KHz
     iPVDFFiltered[w][p] = LP_filter(PVDFsensor[p]);    // filtro i dati Sensore p e riempio il buffer 
     p++;
 
-//    }
-//    if (ActiveSens%2==1){      // To read only one sensor, only in case of odd number of sensors
-//        AD1CON2bits.SMPI = 0b0000;  // Create the interrupt only after one sample
-//        configure_sequence_MUXA(p,5);  //We need to create a sequence of one sample, the second input is unused 
-//        AD1CON1bits.ASAM = 1;
-//        AD1CON1bits.ADON = 1;
-//        while (!IFS0bits.AD1IF){} // We wait for the reading to finish
-//        AD1CON1bits.ADON = 0;
-//        IFS0bits.AD1IF = 0;
-//        PVDFsensor[p] = ADC1BUF0;         // Read the AN9 channel conversion result
-//        iPVDFFiltered[w][p] = LP_filter(PVDFsensor[p]);    // filtro i dati Sensore 1 e riempio il buffer 
-//        AD1CON2bits.SMPI = 0b0001; // Reset interrupt on second sample for the next reading
-//    }
+
 
     w++;
     if(w==ADCBufferLength){       //    w=(w+1)%ADCBufferLength;
@@ -306,9 +281,9 @@ void __attribute__((__interrupt__, no_auto_psv)) _U1RXInterrupt(void){
     while (U1STAbits.URXDA){
         InputBuffer[ind] = U1RXREG;   // as long as data comes in we save it inside a buffer.
         ind = (ind+1);
+        NewDataArrived = 1;
         if (ind==10){
-            ind = 0;
-            NewDataArrived = 1;
+            ind = 0;    
             break; //Note any extra chars received will overwrite the beginning of the buffer again
         }
         if (U1STAbits.OERR){
@@ -332,11 +307,11 @@ void configure_sequence_MUXA(char s1, char s2){
 //    AD1CSSLbits.CSSL15 = 0; //Corresponding analog channel selected for input scan
 //    AD1CSSLbits.CSSL9 = 0; //Corresponding analog channel selected for input scan
     
-    if (s1 == 0 || s2 == 0) AD1CSSLbits.CSSL0 = 1;   //We activate the channels based on the sensors we want
-    if (s1 == 1 || s2 == 1) AD1CSSLbits.CSSL13 = 1;  //to read it should work because at couples the channels 
-//    if (s1 == 2 || s2 == 2) AD1CSSLbits.CSSL0 = 1;   //are in increasing order.
-//    if (s1 == 3 || s2 == 3) AD1CSSLbits.CSSL13 = 1; // CHANGE TO L0 AND L13 FOR THE NEW BOARD
-//    if (s1 == 4 || s2 == 4) AD1CSSLbits.CSSL15 = 1;
+    if (s1 == 0 || s2 == 0) AD1CSSLbits.CSSL0 = 1;    // We activate the channels based on the sensors we want
+    if (s1 == 1 || s2 == 1) AD1CSSLbits.CSSL13 = 1;   // to read it should work because at couples the channels 
+//  if (s1 == 2 || s2 == 2) AD1CSSLbits.CSSL0 = 1;    //are in increasing order.
+//  if (s1 == 3 || s2 == 3) AD1CSSLbits.CSSL13 = 1;   // CHANGE TO L0 AND L13 FOR THE NEW BOARD
+//  if (s1 == 4 || s2 == 4) AD1CSSLbits.CSSL15 = 1;
 }
 
 
@@ -407,7 +382,7 @@ void init_buffer (void){
 void ManageSerialTX(void){
     
     unsigned int j;
-    OutputBuffer[5] = (Timer & 0xFF00) >> 8;   // the voltage level read at 100Hz
+    OutputBuffer[5] = (Timer & 0xFF00) >> 8;   // time stamp read at 100Hz
     OutputBuffer[6] = (Timer & 0x00FF);
     for (j=0; j<ActiveSens; j++){
         aux = 7*j;
@@ -428,8 +403,8 @@ void ManageSerialRX(void) {
 
     int message_size;
     int message_arrived=0;
- 
-    for (int i=0; i<InputBufferLength; i++){
+    int i;
+    for (i=0; i<InputBufferLength; i++){
         if ((InputBuffer[i]==0xA1) && (InputBuffer[(i+1)%InputBufferLength]==0xA2)){
             message_size = InputBuffer[(i+2)%InputBufferLength];
             if ((InputBuffer[(i+message_size-1)%InputBufferLength]==0xA1) && (InputBuffer[(i+message_size-2)%InputBufferLength]==0xA2)){
@@ -518,7 +493,7 @@ void ReadCmd(int start, char command_type){
 //Function: This function detect the touch event and the release event        //
 //          analyzing the samples inside a window of size windowLenght. It    //
 //          raises a digital pin if the value is greater than a certain       //
-//          iThresholdT which means a touch event or it turn down the pin if  // 
+//          iThresholdT which means a touch event or it resets the pin if  // 
 //          the value is lower than iThresholdR which means there is a release//
 //          event. Derivative control is also exploited, setting a pin if the //
 //          average slope in the window of interest is higher/lower than a    //
@@ -783,15 +758,26 @@ void set_LED(char led)
   }
 }
 
+void circleColors(unsigned int delays) {
+    char colors[] = {'R', 'G', 'B', 'Y', 'C', 'M', 'W','0'};
+    int num_colors = 8;
+    int i;
+    for (i = 0; i < num_colors; i++) {
+        // Set the LED to the current color
+        set_LED(colors[i]);
+        // Delay before changing to the next color
+        __delay_ms(delays);
+    }
+}
 
 int main(int argc, char** argv){
-    
+   
     // Initialization of micro and peripheral      
     init_mcu();
     tmr1_init();
     init_uart();
     init_ADC();   
-
+    circleColors(1000);
     // Read last data saved in the EE Data Memory (EEPROM) before initializing the output buffer 
     
     TBLPAG = 0x7F;  //Select the page to point (check EE Data Memory)
@@ -810,8 +796,8 @@ int main(int argc, char** argv){
     ActiveSens = __builtin_tblrdl(tbloffset_nSens);    
     StimTime = __builtin_tblrdl(tbloffset_StimTime);
     MotFlag = __builtin_tblrdl(tbloffset_MotFlag);
-    
-    for (int i=0;i<ActiveSens;i++){
+    int i;
+    for (i=0;i<ActiveSens;i++){
         int eeprom_pos = i*2;
         ThresholdT[i] = __builtin_tblrdl(tbloffset_thrT+eeprom_pos);
         ThresholdR[i] = __builtin_tblrdl(tbloffset_thrR+eeprom_pos);
@@ -833,8 +819,18 @@ int main(int argc, char** argv){
     U1TXREG = 0xA1;// THE FIRST WRITING IN THE TXREG WILL CALL THE FIRST INTERRUPT
     
     //	main's while
-	while (1){      
-           
+	while (1){
+        circleColors(1000);
+        if (NewDataArrived==1){ 
+            // echo back to two uarts
+            send_uart2(InputBuffer[ind]);
+            send_uart(10);
+        }else{
+            send_uart(10);
+        }        
+    }
+    // non va sotto mai.
+    while (1){
         if (NewDataArrived==1){ 
             ManageSerialRX();
         }
@@ -851,7 +847,8 @@ int main(int argc, char** argv){
 
         if (icheckEvent==1){
             icheckEvent = 0;
-            for(int p2=0; p2<ActiveSens; p2++) {
+            int p2;
+            for(p2=0; p2<ActiveSens; p2++) {
                 eventDetection(p2);   // rileva l'evento (nel nostro caso fino a1 massimo in una window di acquisizione del ADC buffer)
             }
         }

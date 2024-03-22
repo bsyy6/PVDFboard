@@ -142,7 +142,7 @@ void GIE_OFF(void);
 void Save_EEPROM (int data, int address);
 void init_ADC(void);
 void send_uart (char Message);
-    
+void send_uart2 (char msgS);
 
 #ifdef	__cplusplus
 }
