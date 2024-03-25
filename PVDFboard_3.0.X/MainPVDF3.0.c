@@ -158,14 +158,14 @@ unsigned int Timer = 0;                             //Variable to send to SW as 
 #define OutputBufferLength 23           //Serial command to be transmitted to interface (43 max length with 5 sensors)
 #define InputBufferLength  10 //15      //Serial command to be received from interface
 unsigned char OutputBuffer[OutputBufferLength] = {0};  
-unsigned int InputBuffer[InputBufferLength] = {0};  
+volatile unsigned char InputBuffer[10] = {0};  
 
 unsigned char header[2] = {0xA1,0xA2};               
 unsigned char tail[2] = {0xA2,0xA1};
 
 unsigned char checkCOM = 0;
 unsigned char StartRX = 0;             // wait StartRX=1 for enabling serial communication
-unsigned char ind=0;                   // shifts RX buffer
+volatile unsigned char ind=0;                   // shifts RX buffer
 unsigned char NewDataArrived = 0;      // Flag to signal new data in RX
 unsigned char SendData = 0;            // Flag to allow sending data at 100Hz
 unsigned char aux = 0;                 // Used to populate properly the output buffer
@@ -243,57 +243,72 @@ void __attribute__((__interrupt__, no_auto_psv)) _T1Interrupt(void){ //@1KHz
 	IFS0bits.T1IF = 0; 					// Clear Timer1 interrupt flag
    
 }
+/*
+void __attribute__((__interrupt__, no_auto_psv)) _ADC1Intterrupt(void){
+ // to do 
+}
+*/
+
 
 void __attribute__((__interrupt__, no_auto_psv)) _U1TXInterrupt(void){
     
-    if (OutByteToSend == OutputBuffer[2]-2){     // recognise when it's time to send the tail
-        U1TXREG = 0xA2; //OutputBuffer[OutputBufferLength-2];
-        U1TXREG = 0xA1; //OutputBuffer[OutputBufferLength-1];
-        IEC0bits.U1TXIE = 0;  // DISABLE THE INTERRUPT since I sent the entire message
-        OutByteToSend = 1;
-        IFS0bits.U1TXIF = 0;
-        return;
-    }
-    else if (OutByteToSend == OutputBuffer[2]-1){
-        U1TXREG = 0xA1;//OutputBuffer[OutputBufferLength-1];
-        IEC0bits.U1TXIE = 0;  // DISABLE THE INTERRUPT since I sent the entire message
-        OutByteToSend = 1;
-        IFS0bits.U1TXIF = 0;
-        return;  
-    }
+//    if (OutByteToSend == OutputBuffer[2]-2){     // recognise when it's time to send the tail
+//        U1TXREG = 0xA2; //OutputBuffer[OutputBufferLength-2];
+//        U1TXREG = 0xA1; //OutputBuffer[OutputBufferLength-1];
+//        IEC0bits.U1TXIE = 0;  // DISABLE THE INTERRUPT since I sent the entire message
+//        OutByteToSend = 1;
+//        IFS0bits.U1TXIF = 0;
+//        return;
+//    }
+//    else if (OutByteToSend == OutputBuffer[2]-1){
+//        U1TXREG = 0xA1;//OutputBuffer[OutputBufferLength-1];
+//        IEC0bits.U1TXIE = 0;  // DISABLE THE INTERRUPT since I sent the entire message
+//        OutByteToSend = 1;
+//        IFS0bits.U1TXIF = 0;
+//        return;  
+//    }
     
-    U1TXREG = OutputBuffer[OutByteToSend];          //  SEND ONE BYTE AT A TIME but while we transmit we don't wait, maybe we can go in couples
-    OutByteToSend++;
-    
-    if (OutByteToSend == OutputBuffer[2]-2){
-        U1TXREG = 0xA2;
-    }
-    else{
-        U1TXREG = OutputBuffer[OutByteToSend];
-    }
-    OutByteToSend++;
-    
+      // U1TXREG = OutputBuffer[0];          //  SEND ONE BYTE AT A TIME but while we transmit we don't wait, maybe we can go in couples
+//    OutByteToSend++;
+//    
+//    if (OutByteToSend == OutputBuffer[2]-2){
+//        U1TXREG = 0xA2;
+//    }
+//    else{
+//        U1TXREG = OutputBuffer[OutByteToSend];
+//    }
+//    OutByteToSend++;
+    while(!U1STAbits.TRMT){}
     IFS0bits.U1TXIF = 0;  // Clear TX Interrupt flag
 }
 
 void __attribute__((__interrupt__, no_auto_psv)) _U1RXInterrupt(void){   
     
-    while (U1STAbits.URXDA){
-        InputBuffer[ind] = U1RXREG;   // as long as data comes in we save it inside a buffer.
-        ind = (ind+1);
-        NewDataArrived = 1;
-        if (ind==10){
-            ind = 0;    
-            break; //Note any extra chars received will overwrite the beginning of the buffer again
-        }
-        if (U1STAbits.OERR){
-            U1STAbits.OERR = 0;
-        }
+    
+    InputBuffer[ind] = (unsigned char) (U1RXREG & 0xFF) ;   // as long as data comes in we save it inside a buffer.
+    ind++;
+    
+    NewDataArrived = 1;
+    if (ind==10){
+        ind = 0;    
     }
+    
+    if (U1STAbits.OERR){
+        U1STAbits.OERR = 0;
+    }
+
     IFS0bits.U1RXIF = 0;                // Clear TX Interrupt flag
 }
 
 
+void __attribute__((__interrupt__, no_auto_psv)) _U2TXInterrupt(void){
+    while(!U2STAbits.TRMT){}
+    IFS1bits.U2TXIF = 0;  // Clear TX Interrupt flag
+}
+
+void __attribute__((__interrupt__, no_auto_psv)) _U2RXInterrupt(void){
+    IFS1bits.U2RXIF = 0;  // Clear TX Interrupt flag
+}
 ////////////////////////////////////////////////////////////////////////////////
 //Input:    The number of the ADC channels we want to read(s1,s2)             //
 //Output:   None                                                              //
@@ -401,22 +416,22 @@ void ManageSerialTX(void){
 ////////////////////////////////////////////////////////////////////////////////
 void ManageSerialRX(void) {
 
-    int message_size;
-    int message_arrived=0;
-    int i;
-    for (i=0; i<InputBufferLength; i++){
-        if ((InputBuffer[i]==0xA1) && (InputBuffer[(i+1)%InputBufferLength]==0xA2)){
-            message_size = InputBuffer[(i+2)%InputBufferLength];
-            if ((InputBuffer[(i+message_size-1)%InputBufferLength]==0xA1) && (InputBuffer[(i+message_size-2)%InputBufferLength]==0xA2)){
-               ReadCmd(i,InputBuffer[(i+3)%InputBufferLength]); 
-               bluetime = 0;
-               BLUELED = 1;
-               InputBuffer[i]=0; 
-               message_arrived=1;
-            }
-        }
-    }
-    NewDataArrived=0;
+//    int message_size;
+//    int message_arrived=0;
+//    int i;
+//    for (i=0; i<InputBufferLength; i++){
+//        if ((InputBuffer[i]==0xA1) && (InputBuffer[(i+1)%InputBufferLength]==0xA2)){
+//            message_size = InputBuffer[(i+2)%InputBufferLength];
+//            if ((InputBuffer[(i+message_size-1)%InputBufferLength]==0xA1) && (InputBuffer[(i+message_size-2)%InputBufferLength]==0xA2)){
+//               ReadCmd(i,InputBuffer[(i+3)%InputBufferLength]); 
+//               bluetime = 0;
+//               BLUELED = 1;
+//               InputBuffer[i]=0; 
+//               message_arrived=1;
+//            }
+//        }
+//    }
+//    NewDataArrived=0;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -430,61 +445,61 @@ void ManageSerialRX(void) {
 //////////////////////////////////////////////////////////////////////////////// 
 void ReadCmd(int start, char command_type){
     
-    switch (command_type){
-        case 0:
-            checkCOM = 1; //TX one message to confirm that is the correct port
-            break;
-        case 1:
-            Save_EEPROM(InputBuffer[(start+4)%InputBufferLength]*4,tbloffset_thrT);
-            Save_EEPROM(InputBuffer[(start+5)%InputBufferLength]*4,tbloffset_thrR);
-            Save_EEPROM(InputBuffer[(start+6)%InputBufferLength]*4,tbloffset_thrderT);
-            Save_EEPROM((-1*InputBuffer[(start+7)%InputBufferLength]*4),tbloffset_thrderR);
-           
-            ThresholdT[0]=InputBuffer[(start+4)%InputBufferLength]*4;
-            ThresholdR[0]=InputBuffer[(start+5)%InputBufferLength]*4;
-            ThresholdDerT[0]=InputBuffer[(start+6)%InputBufferLength]*4;
-            ThresholdDerR[0]=InputBuffer[(start+7)%InputBufferLength]*4;
-            
-            OutputBuffer[10]= ThresholdT[0]/4;
-            OutputBuffer[11]= ThresholdR[0]/4;
-            OutputBuffer[12]= ThresholdDerT[0]/4;
-            OutputBuffer[13]= ThresholdDerR[0]/4;
-            break;
-        case 2:
-            Save_EEPROM(InputBuffer[(start+4)%InputBufferLength]*4,tbloffset_thrT+2);
-            Save_EEPROM(InputBuffer[(start+5)%InputBufferLength]*4,tbloffset_thrR+2);
-            Save_EEPROM(InputBuffer[(start+6)%InputBufferLength]*4,tbloffset_thrderT+2);
-            Save_EEPROM((-1*InputBuffer[(start+7)%InputBufferLength]*4),tbloffset_thrderR+2);
-            
-            ThresholdT[1]=InputBuffer[(start+4)%InputBufferLength]*4;
-            ThresholdR[1]=InputBuffer[(start+5)%InputBufferLength]*4;
-            ThresholdDerT[1]=InputBuffer[(start+6)%InputBufferLength]*4;
-            ThresholdDerR[1]=InputBuffer[(start+7)%InputBufferLength]*4;
-            
-            OutputBuffer[17]= ThresholdT[1]/4;
-            OutputBuffer[18]= ThresholdR[1]/4;
-            OutputBuffer[19]= ThresholdDerT[1]/4;
-            OutputBuffer[20]= ThresholdDerR[1]/4;
-            break;
-        case 6:
-            if (InputBuffer[(start+4)%InputBufferLength]<=nSensors){   //message is valid              
-                Save_EEPROM(InputBuffer[(start+4)%InputBufferLength],tbloffset_nSens);
-                ActiveSens = InputBuffer[(start+4)%InputBufferLength];
-                OutputBuffer[2] = (ActiveSens*7)+8;    //Output message length
-                
-                Save_EEPROM(InputBuffer[(start+5)%InputBufferLength],tbloffset_MotFlag);  //change the state of motors (on/off)
-                MotFlag = InputBuffer[(start+5)%InputBufferLength];
-                OutputBuffer[3] = MotFlag;
-                
-                Save_EEPROM(InputBuffer[(start+6)%InputBufferLength],tbloffset_StimTime);  //change the stimulation time
-                StimTime = InputBuffer[(start+6)%InputBufferLength]; 
-                OutputBuffer[4] = StimTime;
-            }
-            break;
-        case 7:
-            StartRX = InputBuffer[(start+4)%InputBufferLength];
-            break;
-    }
+//    switch (command_type){
+//        case 0:
+//            checkCOM = 1; //TX one message to confirm that is the correct port
+//            break;
+//        case 1:
+//            Save_EEPROM(InputBuffer[(start+4)%InputBufferLength]*4,tbloffset_thrT);
+//            Save_EEPROM(InputBuffer[(start+5)%InputBufferLength]*4,tbloffset_thrR);
+//            Save_EEPROM(InputBuffer[(start+6)%InputBufferLength]*4,tbloffset_thrderT);
+//            Save_EEPROM((-1*InputBuffer[(start+7)%InputBufferLength]*4),tbloffset_thrderR);
+//           
+//            ThresholdT[0]=InputBuffer[(start+4)%InputBufferLength]*4;
+//            ThresholdR[0]=InputBuffer[(start+5)%InputBufferLength]*4;
+//            ThresholdDerT[0]=InputBuffer[(start+6)%InputBufferLength]*4;
+//            ThresholdDerR[0]=InputBuffer[(start+7)%InputBufferLength]*4;
+//            
+//            OutputBuffer[10]= ThresholdT[0]/4;
+//            OutputBuffer[11]= ThresholdR[0]/4;
+//            OutputBuffer[12]= ThresholdDerT[0]/4;
+//            OutputBuffer[13]= ThresholdDerR[0]/4;
+//            break;
+//        case 2:
+//            Save_EEPROM(InputBuffer[(start+4)%InputBufferLength]*4,tbloffset_thrT+2);
+//            Save_EEPROM(InputBuffer[(start+5)%InputBufferLength]*4,tbloffset_thrR+2);
+//            Save_EEPROM(InputBuffer[(start+6)%InputBufferLength]*4,tbloffset_thrderT+2);
+//            Save_EEPROM((-1*InputBuffer[(start+7)%InputBufferLength]*4),tbloffset_thrderR+2);
+//            
+//            ThresholdT[1]=InputBuffer[(start+4)%InputBufferLength]*4;
+//            ThresholdR[1]=InputBuffer[(start+5)%InputBufferLength]*4;
+//            ThresholdDerT[1]=InputBuffer[(start+6)%InputBufferLength]*4;
+//            ThresholdDerR[1]=InputBuffer[(start+7)%InputBufferLength]*4;
+//            
+//            OutputBuffer[17]= ThresholdT[1]/4;
+//            OutputBuffer[18]= ThresholdR[1]/4;
+//            OutputBuffer[19]= ThresholdDerT[1]/4;
+//            OutputBuffer[20]= ThresholdDerR[1]/4;
+//            break;
+//        case 6:
+//            if (InputBuffer[(start+4)%InputBufferLength]<=nSensors){   //message is valid              
+//                Save_EEPROM(InputBuffer[(start+4)%InputBufferLength],tbloffset_nSens);
+//                ActiveSens = InputBuffer[(start+4)%InputBufferLength];
+//                OutputBuffer[2] = (ActiveSens*7)+8;    //Output message length
+//                
+//                Save_EEPROM(InputBuffer[(start+5)%InputBufferLength],tbloffset_MotFlag);  //change the state of motors (on/off)
+//                MotFlag = InputBuffer[(start+5)%InputBufferLength];
+//                OutputBuffer[3] = MotFlag;
+//                
+//                Save_EEPROM(InputBuffer[(start+6)%InputBufferLength],tbloffset_StimTime);  //change the stimulation time
+//                StimTime = InputBuffer[(start+6)%InputBufferLength]; 
+//                OutputBuffer[4] = StimTime;
+//            }
+//            break;
+//        case 7:
+//            StartRX = InputBuffer[(start+4)%InputBufferLength];
+//            break;
+//    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -758,15 +773,24 @@ void set_LED(char led)
   }
 }
 
-void circleColors(unsigned int delays) {
+void circleColors(unsigned int delays, bool reverse ) {
     char colors[] = {'R', 'G', 'B', 'Y', 'C', 'M', 'W','0'};
     int num_colors = 8;
     int i;
-    for (i = 0; i < num_colors; i++) {
-        // Set the LED to the current color
-        set_LED(colors[i]);
-        // Delay before changing to the next color
-        __delay_ms(delays);
+    if(!reverse){
+        for (i = 0; i < num_colors; i++) {
+            // Set the LED to the current color
+            set_LED(colors[i]);
+            // Delay before changing to the next color
+            __delay_ms(delays);
+        }
+    }else{
+        for (i = num_colors; i > 0; i--) {
+            // Set the LED to the current color
+            set_LED(colors[i]);
+            // Delay before changing to the next color
+            __delay_ms(delays);
+        }
     }
 }
 
@@ -777,7 +801,9 @@ int main(int argc, char** argv){
     tmr1_init();
     init_uart();
     init_ADC();   
-    circleColors(1000);
+    
+    circleColors(250,1);
+    circleColors(250,0);
     // Read last data saved in the EE Data Memory (EEPROM) before initializing the output buffer 
     
     TBLPAG = 0x7F;  //Select the page to point (check EE Data Memory)
@@ -815,20 +841,25 @@ int main(int argc, char** argv){
 
     set_LED('G');
     
-    IEC0bits.U1TXIE = 1;   // ENABLE TX INTERRUPT so we can start the data send routine
-    U1TXREG = 0xA1;// THE FIRST WRITING IN THE TXREG WILL CALL THE FIRST INTERRUPT
+    //IEC0bits.U1TXIE = 1;   // ENABLE TX INTERRUPT so we can start the data send routine
+    //U1TXREG = 0xA1;// THE FIRST WRITING IN THE TXREG WILL CALL THE FIRST INTERRUPT
     
     //	main's while
 	while (1){
-        circleColors(1000);
+        circleColors(10,1);
         if (NewDataArrived==1){ 
             // echo back to two uarts
-            send_uart2(InputBuffer[ind]);
-            send_uart(10);
+            send_uart2(InputBuffer[(ind+9)%10]);
+            send_uart(ind);
+            send_uart(0xFF);
+            send_uart(InputBuffer[(ind+9)%10]);
+            NewDataArrived = 0;
         }else{
-            send_uart(10);
+            //send_uart(0xF0);
+            //send_uart2(0xAB);
         }        
     }
+    
     // non va sotto mai.
     while (1){
         if (NewDataArrived==1){ 
@@ -840,7 +871,7 @@ int main(int argc, char** argv){
             SendData=0;
             ManageSerialTX();      
             IEC0bits.U1TXIE = 1;   // ENABLE TX INTERRUPT so we can start the data send routine -> we should enable this only when there is the serial connection with the GUI
-            U1TXREG = 0xA1; // THE FIRST WRITING IN THE TXREG WILL CALL THE FIRST INTERRUPT 
+            U1TXREG = 0xA1;        // THE FIRST WRITING IN THE TXREG WILL CALL THE FIRST INTERRUPT 
         }
 
         copyBuffer(w);

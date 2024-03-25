@@ -75,8 +75,9 @@ extern "C" {
 /****************************************************/   
 /****************************************************/
 /****************************************************/
-#define FCY 4000000
-#define BAUDRATE 62500
+#define FOSC 8000000UL   // Oscillator Frequency
+#define FCY  4000000UL   // Instruction Cycle Frequency
+#define BAUDRATE 115200
 #define DELAY_105uS asm volatile ("REPEAT, #4201"); Nop(); // 105uS delay
     
 
@@ -141,8 +142,8 @@ void init_uart(void);
 void GIE_OFF(void);
 void Save_EEPROM (int data, int address);
 void init_ADC(void);
-void send_uart (char Message);
-void send_uart2 (char msgS);
+void send_uart (unsigned char Message);
+void send_uart2 (unsigned char msgS);
 
 #ifdef	__cplusplus
 }

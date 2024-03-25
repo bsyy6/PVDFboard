@@ -142,9 +142,7 @@ void tmr1_init(){ // 16 bit Timer
     TMR1 = 0x0000;                  // Clear timer register
     PR1 = 4000;                      // CLK = FOSC/2 = 250 KHz   
     
-    IPC0bits.T1IP0 = 1;           // PRIORITY = 3
-    IPC0bits.T1IP1 = 1;
-    IPC0bits.T1IP2 = 0;
+    IPC0bits.T1IP = 3;               // priority 3
     
     TMR1_FLAG = 0;                  // Clear Flag
     TMR1_INT_ENABLE = 0;            // Interrupt disabled (must be enabled in main)
@@ -165,9 +163,7 @@ void tmr2_init(){ // 8 bit Timer --> not used
     TMR2 = 0x00;                    // Clear timer register
     PR2 = 250;                      // CLK = FOSC/2 = 250 KHz   
     
-    IPC1bits.T2IP0 = 0;             //PRIORITY = 2
-    IPC1bits.T2IP1 = 1;
-    IPC1bits.T2IP2 = 0;
+    IPC1bits.T2IP = 2;              // priority 2
     
     TMR2_FLAG = 0;                  // Clear Flag
     TMR2_INT_ENABLE = 0;            // Interrupt disabled (must be enabled in main)
@@ -222,20 +218,16 @@ void init_uart(void){
     U1MODEbits.ABAUD = 0;           // Auto-Baud disabled
     U1MODEbits.UEN = 0b00;          // Enable only UTX and URX
     U1MODEbits.BRGH = 1;            // Fast Speed Mode 
-    U1BRG = 8;                      // Set Baud Rate to 62500 (= 15)
+    U1BRG = 8;                      // Set Baud Rate to 115200
     ANSBbits.ANSB2 = 0;             // HERE LIED AN ERROR!! RX pin is shared with AN4 = RB2. We must set as digital to make it work.
-    U1STAbits.UTXISEL0 = 0;         //Interrupt when the last character is shifted out 
-    U1STAbits.UTXISEL1 = 1;         //of the Transmit Shift Register; all transmit operation completed  (01))
-    U1STAbits.URXISEL0 = 0;         //Interrupt at every new word in RX buffer 
+    U1STAbits.UTXISEL0 = 0;         // Interrupt when the last character is shifted out 
+    U1STAbits.UTXISEL1 = 1;         // of the Transmit Shift Register; all transmit operation completed  (01))
+    U1STAbits.URXISEL0 = 0;         // Interrupt at every new word in RX buffer 
     U1STAbits.URXISEL1 = 0;
-    IPC2bits.U1RXIP0 = 1;           // Give the receiving message a higher priority than everything else 
-    IPC2bits.U1RXIP1 = 1;           // PRIORITY = 8
-    IPC2bits.U1RXIP2 = 1;
-    IPC3bits.U1TXIP0 = 1;           // Give the transmission message a lower priority than everything else 
-    IPC3bits.U1TXIP1 = 1;           // PRIORITY = 2
-    IPC3bits.U1TXIP2 = 1;
-    //ANSBbits.ANSB7 = 0;           // Disable Analog port for U1TX
-    //TRISBbits.TRISB7 = 1;         // Quando così è set come input (1) U1TX 
+    
+    IPC2bits.U1RXIP = 6;            // priority level.
+    IPC3bits.U1TXIP = 5;           // priority level.
+    
     IEC0bits.U1TXIE = 0;            // Enable UART TX interrupt
     IFS0bits.U1RXIF = 0;
     IEC0bits.U1RXIE = 1;            // Enable UART RX interrupt
@@ -254,31 +246,34 @@ void init_uart(void){
     ANSBbits.ANSB1 = 0;             //RX pin is shared with AN2 = RB0. We must set as digital to make it work.
     U2STAbits.UTXISEL0 = 0;         //Interrupt when the last character is shifted out 
     U2STAbits.UTXISEL1 = 1;         //of the Transmit Shift Register; all transmit operation completed  (01))
+    
     U2STAbits.URXISEL0 = 0;         //Interrupt at every new word in RX buffer 
     U2STAbits.URXISEL1 = 0;
-    IPC7bits.U2RXIP0 = 1;           // Give the receiving message a higher priority than everything else 
-    IPC7bits.U2RXIP1 = 1;           // PRIORITY = 8
-    IPC7bits.U2RXIP2 = 1;
-    IPC7bits.U2TXIP0 = 0;           // Give the transmission message a lower priority than everything else 
-    IPC7bits.U2TXIP1 = 1;           // PRIORITY = 2
-    IPC7bits.U2TXIP2 = 0;
-    IEC1bits.U2TXIE = 0;            // Enable UART TX interrupt
-    IFS1bits.U2RXIF = 0;
+    
+    IPC7bits.U2RXIP = 8;            // recieve interrupt (8) highest priority   
+    IPC7bits.U2TXIP  = 7;           // send interrupt (7)  high priority
+    
+    IEC1bits.U2TXIE = 0;            // disable UART TX interrupt
+    IFS1bits.U2RXIF = 0;            // reset the flag
+    
     IEC1bits.U2RXIE = 1;            // Enable UART RX interrupt
     U2MODEbits.UARTEN = 1;          // Enable UART
     U2STAbits.UTXEN = 1;            // Enable UART TX, Transmit is enabled; UxTX pin is controlled by UARTx
 }
    
-void send_uart (char Message){
+void send_uart (unsigned char msg){
     
-    U1TXREG = Message;                // Send a byte
-    while(U1STAbits.TRMT == 0){   // Wait until the transmit shift register is empty and the transmit buffer is empty (the transmission has completed), it does it automatically
-    }
+    //OutputBuffer[0] = msg;
+    IEC0bits.U1TXIE = 1;   // ENABLE TX INTERRUPT so we can start the data send routine -> we should enable this only when there is the serial connection with the GUI
+    U1TXREG = 0x00FF & (unsigned int) msg;
+//    U1TXREG = Message;                // Send a byte
+//    while(U1STAbits.TRMT == 0){       // Wait until the transmit shift register is empty and the transmit buffer is empty (the transmission has completed), it does it automatically
+//    }
 }
 
-void send_uart2 ( char msg){
-    U2TXREG = msg;
-    while(!U2STAbits.TRMT){}
+void send_uart2 (unsigned char msg){
+    U2TXREG = 0x00FF &(unsigned int) msg;
+    //while(!U2STAbits.TRMT){}
 }
 
 char read_uart (){
