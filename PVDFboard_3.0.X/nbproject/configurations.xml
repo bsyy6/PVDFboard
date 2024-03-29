@@ -6,6 +6,7 @@
                    projectFiles="true">
       <itemPath>systemConf.h</itemPath>
       <itemPath>HeaderPVDF.h</itemPath>
+      <itemPath>buffers.h</itemPath>
     </logicalFolder>
     <logicalFolder name="LinkerScript"
                    displayName="Linker Files"
@@ -16,6 +17,7 @@
                    projectFiles="true">
       <itemPath>MainPVDF3.0.c</itemPath>
       <itemPath>systemConf3_0.c</itemPath>
+      <itemPath>buffers.c</itemPath>
     </logicalFolder>
     <logicalFolder name="ExternalFiles"
                    displayName="Important Files"

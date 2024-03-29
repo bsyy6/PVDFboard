@@ -33,7 +33,8 @@
 #include "xc.h"
 #include <libpic30.h>
 #include <stdbool.h> 
-
+#include <stdint.h>
+#include "buffers.h"
 
 
 // MOTOR PORTS
@@ -62,7 +63,7 @@
 
 // VARIABLES
 
-bool state = true;
+//bool state = true;
 unsigned char count = 0;                     // Counter for Timer1 (increased every match with PR1), Press acquisition counter
 
 unsigned int PVDFsensor[nSensors] = {0};                          // Raw Data ADC values for all channels
@@ -109,6 +110,7 @@ int ThresholdT[nSensors];
 int ThresholdR[nSensors];
 int ThresholdDerT[nSensors];
 int ThresholdDerR[nSensors];
+int iuart = 0;
 
 // DIGITAL LOW PASS FILTER (Uncomment the section related to the filter you want to use)
 
@@ -154,18 +156,36 @@ unsigned int bluetime = 0;
 unsigned int redtime = 0;
 unsigned int Timer = 0;                             //Variable to send to SW as timestamp (100Hz)
 
-// SERIAL COMMUNICATION
-#define OutputBufferLength 23           //Serial command to be transmitted to interface (43 max length with 5 sensors)
-#define InputBufferLength  10 //15      //Serial command to be received from interface
-unsigned char OutputBuffer[OutputBufferLength] = {0};  
-volatile unsigned char InputBuffer[10] = {0};  
+/***********/
+// SERIAL COMMUNICATION - Modified : Waleed March-2024
+
+volatile Buffer inBuffer1 = BUFFER_INIT; 
+volatile Buffer outBuffer1 = BUFFER_INIT;
+volatile uint8_t byteRead[50];
+
+volatile Buffer inBuffer2 = BUFFER_INIT;
+volatile Buffer outBuffer2 = BUFFER_INIT;
 
 unsigned char header[2] = {0xA1,0xA2};               
 unsigned char tail[2] = {0xA2,0xA1};
 
+/* communication state byte */
+typedef enum {
+    A1START, // expecting first header
+    A2START, // expecting second header        
+    SIZE,    // expecting total msg size
+    DATA,    // expecting data
+    A2END,   // expecting first tail
+    A1END,   // expecting second tail
+    ERROR,   // error 
+} comState;
+
+
+/***********/
+
 unsigned char checkCOM = 0;
 unsigned char StartRX = 0;             // wait StartRX=1 for enabling serial communication
-volatile unsigned char ind=0;                   // shifts RX buffer
+volatile unsigned char ind=0;          // shifts RX buffer
 unsigned char NewDataArrived = 0;      // Flag to signal new data in RX
 unsigned char SendData = 0;            // Flag to allow sending data at 100Hz
 unsigned char aux = 0;                 // Used to populate properly the output buffer
@@ -188,68 +208,71 @@ void init_buffer(void);
 void sr_LED_primary(char led, bool state);
 void set_LED(char led);
 
-//Handler interrupt
+//Timer1 interrupt
 void __attribute__((__interrupt__, no_auto_psv)) _T1Interrupt(void){ //@1KHz
-    
-    count++;                            // Every 1 ms T1 interrupt increase count
-
-    CountVibr1++;
-    CountVibr2++;
-
-    bluetime++;
-    redtime++;
-    
-    if (count == 10) //makes it 100Hz 
-    {    
-        count = 0;
-        SendData=1;   //100Hz
-        Timer++;
-    }
-    unsigned int q ; 
-    for (q=0; q<ActiveSens; q++)
-    {
-        // to avoid double detection of the same contact event
-        tRefractory[q]++;
-    }
-    
-    // ADC enable to sample the analog input
-    p = 0;
-    IFS0bits.AD1IF = 0;
-    IEC0bits.AD1IE = 1;  // Enable the interrupts while reading all five sensors
-
-
-    configure_sequence_MUXA(p,p+1);   // Create the sequence of channels for MUXA to read
-    AD1CON1bits.ASAM = 1;      // Start the sampling of the channels in sequence 
-    AD1CON1bits.ADON = 1;      // We can only activate the ADC here because to change the settings it must be off 
-    while (!IFS0bits.AD1IF){}  // We wait for the reading to finish
-    AD1CON1bits.ADON = 0;
-    IFS0bits.AD1IF = 0;
-    PVDFsensor[p] = ADC1BUF0;         // Read the AN9 channel conversion result
-    iPVDFFiltered[w][p] = LP_filter(PVDFsensor[p]);    // filtro i dati Sensore p e riempio il buffer 
-    p++;
-    // Fill the vector with data from ADC buffer 2
-    PVDFsensor[p] = ADC1BUF1;         // Read the AN15 channel conversion result
-    iPVDFFiltered[w][p] = LP_filter(PVDFsensor[p]);    // filtro i dati Sensore p e riempio il buffer 
-    p++;
-
-
-
-    w++;
-    if(w==ADCBufferLength){       //    w=(w+1)%ADCBufferLength;
-        w=0;
-        CircledBuffer = 1;
-    }
-    
+//    
+//    count++;                            // Every 1 ms T1 interrupt increase count
+//
+//    CountVibr1++;
+//    CountVibr2++;
+//
+//    bluetime++;
+//    redtime++;
+//    
+//    if (count == 10) //makes it 100Hz 
+//    {    
+//        count = 0;
+//        SendData=1;   //100Hz
+//        Timer++;
+//    }
+//    unsigned int q ; 
+//    for (q=0; q<ActiveSens; q++)
+//    {
+//        // to avoid double detection of the same contact event
+//        tRefractory[q]++;
+//    }
+//    
+//    // ADC enable to sample the analog input
+//    p = 0;
+//    IFS0bits.AD1IF = 0;
+//    IEC0bits.AD1IE = 1;  // Enable the interrupts while reading all five sensors
+//
+//
+//    configure_sequence_MUXA(p,p+1);   // Create the sequence of channels for MUXA to read
+//    AD1CON1bits.ASAM = 1;      // Start the sampling of the channels in sequence 
+//    AD1CON1bits.ADON = 1;      // We can only activate the ADC here because to change the settings it must be off 
+//    while (!IFS0bits.AD1IF){}  // We wait for the reading to finish
+//    AD1CON1bits.ADON = 0;
+//    IFS0bits.AD1IF = 0;
+//    PVDFsensor[p] = ADC1BUF0;         // Read the AN9 channel conversion result
+//    iPVDFFiltered[w][p] = LP_filter(PVDFsensor[p]);    // filtro i dati Sensore p e riempio il buffer 
+//    p++;
+//    // Fill the vector with data from ADC buffer 2
+//    PVDFsensor[p] = ADC1BUF1;         // Read the AN15 channel conversion result
+//    iPVDFFiltered[w][p] = LP_filter(PVDFsensor[p]);    // filtro i dati Sensore p e riempio il buffer 
+//    p++;
+//
+//
+//
+//    w++;
+//    if(w==ADCBufferLength){       //    w=(w+1)%ADCBufferLength;
+//        w=0;
+//        CircledBuffer = 1;
+//    }
+//    
 	IFS0bits.T1IF = 0; 					// Clear Timer1 interrupt flag
    
 }
+
+
+// to-do ADC interrupt
 /*
 void __attribute__((__interrupt__, no_auto_psv)) _ADC1Intterrupt(void){
  // to do 
 }
 */
 
-
+// UART1 interrupts
 void __attribute__((__interrupt__, no_auto_psv)) _U1TXInterrupt(void){
     
 //    if (OutByteToSend == OutputBuffer[2]-2){     // recognise when it's time to send the tail
@@ -283,32 +306,35 @@ void __attribute__((__interrupt__, no_auto_psv)) _U1TXInterrupt(void){
 }
 
 void __attribute__((__interrupt__, no_auto_psv)) _U1RXInterrupt(void){   
-    
-    
-    InputBuffer[ind] = (unsigned char) (U1RXREG & 0xFF) ;   // as long as data comes in we save it inside a buffer.
-    ind++;
-    
-    NewDataArrived = 1;
-    if (ind==10){
-        ind = 0;    
+    // I put data in buffer nothing more nothing less.
+    while(U1STAbits.URXDA){
+        //writeBuffer(U1RXREG, &inBuffer1);
+        byteRead[iuart]  = U1RXREG;
+        iuart++;
     }
-    
     if (U1STAbits.OERR){
         U1STAbits.OERR = 0;
     }
-
     IFS0bits.U1RXIF = 0;                // Clear TX Interrupt flag
 }
 
-
+// UART2 interrupts
 void __attribute__((__interrupt__, no_auto_psv)) _U2TXInterrupt(void){
     while(!U2STAbits.TRMT){}
     IFS1bits.U2TXIF = 0;  // Clear TX Interrupt flag
 }
-
 void __attribute__((__interrupt__, no_auto_psv)) _U2RXInterrupt(void){
-    IFS1bits.U2RXIF = 0;  // Clear TX Interrupt flag
+    while(U2STAbits.URXDA){
+        writeBuffer((unsigned char) (U2RXREG), &inBuffer2);
+    }
+    if (U2STAbits.OERR){
+        U2STAbits.OERR = 0;
+    }
+    
+    IFS1bits.U2RXIF = 0;                // Clear TX Interrupt flag
 }
+
+
 ////////////////////////////////////////////////////////////////////////////////
 //Input:    The number of the ADC channels we want to read(s1,s2)             //
 //Output:   None                                                              //
@@ -367,8 +393,9 @@ void copyBuffer(unsigned int EndPoint){ // da eseguire if copyFlag[p] == 1
 //Function: This function initializes those values of the buffer that don't   //
 //          need to be changed every time.                                    //
 ////////////////////////////////////////////////////////////////////////////////
+
 void init_buffer (void){
-    
+    /*
     OutputBuffer[0] = 0xA1;
     OutputBuffer[1] = 0xA2;
     OutputBuffer[2] = (ActiveSens*7)+9;     // this should be the number of data sent through the usart
@@ -385,7 +412,8 @@ void init_buffer (void){
     OutputBuffer[20] = (char)-1*ThresholdDerR[1]/4;
     
     OutputBuffer[21] = 0xA2;
-    OutputBuffer[22] = 0xA1;   
+    OutputBuffer[22] = 0xA1;
+    */   
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -394,6 +422,7 @@ void init_buffer (void){
 //Function: This function updates the Output Buffer with the right values of  //
 //          analog signals to send the interface                              //
 ////////////////////////////////////////////////////////////////////////////////
+/*
 void ManageSerialTX(void){
     
     unsigned int j;
@@ -406,7 +435,7 @@ void ManageSerialTX(void){
         OutputBuffer[9+aux] = (iPVDFFilteredBuffer[StartDetection][j] & 0x00FF);
     }
 }
-
+*/
 ////////////////////////////////////////////////////////////////////////////////
 //Input:    None                                                              //
 //Output:   None                                                              //
@@ -414,25 +443,33 @@ void ManageSerialTX(void){
 //          and tail of a valid message, and in this case calls ReadCmd to    //
 //          perform the relative command.
 ////////////////////////////////////////////////////////////////////////////////
-void ManageSerialRX(void) {
 
-//    int message_size;
-//    int message_arrived=0;
-//    int i;
-//    for (i=0; i<InputBufferLength; i++){
-//        if ((InputBuffer[i]==0xA1) && (InputBuffer[(i+1)%InputBufferLength]==0xA2)){
-//            message_size = InputBuffer[(i+2)%InputBufferLength];
-//            if ((InputBuffer[(i+message_size-1)%InputBufferLength]==0xA1) && (InputBuffer[(i+message_size-2)%InputBufferLength]==0xA2)){
-//               ReadCmd(i,InputBuffer[(i+3)%InputBufferLength]); 
-//               bluetime = 0;
-//               BLUELED = 1;
-//               InputBuffer[i]=0; 
-//               message_arrived=1;
-//            }
-//        }
-//    }
-//    NewDataArrived=0;
+/*void ManageSerialRX(void) {
+
+    int message_size;
+    int message_arrived=0;
+    int i;
+    for (i=0; i<InputBufferLength; i++){
+        if ((InputBuffer[i]==0xA1) && (InputBuffer[(i+1)%InputBufferLength]==0xA2)){
+            message_size = InputBuffer[(i+2)%InputBufferLength];
+            if ((InputBuffer[(i+message_size-1)%InputBufferLength]==0xA1) && (InputBuffer[(i+message_size-2)%InputBufferLength]==0xA2)){
+               ReadCmd(i,InputBuffer[(i+3)%InputBufferLength]); 
+               bluetime = 0;
+               BLUELED = 1;
+               InputBuffer[i]=0; 
+               message_arrived=1;
+            }
+        }
+    }
+    NewDataArrived=0;
 }
+*/
+
+comState prevState = ERROR;
+comState state = A1START;
+//unsigned char size = 0;
+unsigned char countMsg = 0;
+
 
 ////////////////////////////////////////////////////////////////////////////////
 //Input:    Byte of the Serial Input Buffer from where we start reading(start)//
@@ -443,64 +480,66 @@ void ManageSerialRX(void) {
 //          selecting different size and number of sensors to use, or switch  //
 //          between streaming derivative or analog signal.                    //
 //////////////////////////////////////////////////////////////////////////////// 
+/*
 void ReadCmd(int start, char command_type){
     
-//    switch (command_type){
-//        case 0:
-//            checkCOM = 1; //TX one message to confirm that is the correct port
-//            break;
-//        case 1:
-//            Save_EEPROM(InputBuffer[(start+4)%InputBufferLength]*4,tbloffset_thrT);
-//            Save_EEPROM(InputBuffer[(start+5)%InputBufferLength]*4,tbloffset_thrR);
-//            Save_EEPROM(InputBuffer[(start+6)%InputBufferLength]*4,tbloffset_thrderT);
-//            Save_EEPROM((-1*InputBuffer[(start+7)%InputBufferLength]*4),tbloffset_thrderR);
-//           
-//            ThresholdT[0]=InputBuffer[(start+4)%InputBufferLength]*4;
-//            ThresholdR[0]=InputBuffer[(start+5)%InputBufferLength]*4;
-//            ThresholdDerT[0]=InputBuffer[(start+6)%InputBufferLength]*4;
-//            ThresholdDerR[0]=InputBuffer[(start+7)%InputBufferLength]*4;
-//            
-//            OutputBuffer[10]= ThresholdT[0]/4;
-//            OutputBuffer[11]= ThresholdR[0]/4;
-//            OutputBuffer[12]= ThresholdDerT[0]/4;
-//            OutputBuffer[13]= ThresholdDerR[0]/4;
-//            break;
-//        case 2:
-//            Save_EEPROM(InputBuffer[(start+4)%InputBufferLength]*4,tbloffset_thrT+2);
-//            Save_EEPROM(InputBuffer[(start+5)%InputBufferLength]*4,tbloffset_thrR+2);
-//            Save_EEPROM(InputBuffer[(start+6)%InputBufferLength]*4,tbloffset_thrderT+2);
-//            Save_EEPROM((-1*InputBuffer[(start+7)%InputBufferLength]*4),tbloffset_thrderR+2);
-//            
-//            ThresholdT[1]=InputBuffer[(start+4)%InputBufferLength]*4;
-//            ThresholdR[1]=InputBuffer[(start+5)%InputBufferLength]*4;
-//            ThresholdDerT[1]=InputBuffer[(start+6)%InputBufferLength]*4;
-//            ThresholdDerR[1]=InputBuffer[(start+7)%InputBufferLength]*4;
-//            
-//            OutputBuffer[17]= ThresholdT[1]/4;
-//            OutputBuffer[18]= ThresholdR[1]/4;
-//            OutputBuffer[19]= ThresholdDerT[1]/4;
-//            OutputBuffer[20]= ThresholdDerR[1]/4;
-//            break;
-//        case 6:
-//            if (InputBuffer[(start+4)%InputBufferLength]<=nSensors){   //message is valid              
-//                Save_EEPROM(InputBuffer[(start+4)%InputBufferLength],tbloffset_nSens);
-//                ActiveSens = InputBuffer[(start+4)%InputBufferLength];
-//                OutputBuffer[2] = (ActiveSens*7)+8;    //Output message length
-//                
-//                Save_EEPROM(InputBuffer[(start+5)%InputBufferLength],tbloffset_MotFlag);  //change the state of motors (on/off)
-//                MotFlag = InputBuffer[(start+5)%InputBufferLength];
-//                OutputBuffer[3] = MotFlag;
-//                
-//                Save_EEPROM(InputBuffer[(start+6)%InputBufferLength],tbloffset_StimTime);  //change the stimulation time
-//                StimTime = InputBuffer[(start+6)%InputBufferLength]; 
-//                OutputBuffer[4] = StimTime;
-//            }
-//            break;
-//        case 7:
-//            StartRX = InputBuffer[(start+4)%InputBufferLength];
-//            break;
-//    }
+    switch (command_type){
+        case 0:
+            checkCOM = 1; //TX one message to confirm that is the correct port
+            break;
+        case 1:
+            Save_EEPROM(InputBuffer[(start+4)%InputBufferLength]*4,tbloffset_thrT);
+            Save_EEPROM(InputBuffer[(start+5)%InputBufferLength]*4,tbloffset_thrR);
+            Save_EEPROM(InputBuffer[(start+6)%InputBufferLength]*4,tbloffset_thrderT);
+            Save_EEPROM((-1*InputBuffer[(start+7)%InputBufferLength]*4),tbloffset_thrderR);
+           
+            ThresholdT[0]=InputBuffer[(start+4)%InputBufferLength]*4;
+            ThresholdR[0]=InputBuffer[(start+5)%InputBufferLength]*4;
+            ThresholdDerT[0]=InputBuffer[(start+6)%InputBufferLength]*4;
+            ThresholdDerR[0]=InputBuffer[(start+7)%InputBufferLength]*4;
+            
+            OutputBuffer[10]= ThresholdT[0]/4;
+            OutputBuffer[11]= ThresholdR[0]/4;
+            OutputBuffer[12]= ThresholdDerT[0]/4;
+            OutputBuffer[13]= ThresholdDerR[0]/4;
+            break;
+        case 2:
+            Save_EEPROM(InputBuffer[(start+4)%InputBufferLength]*4,tbloffset_thrT+2);
+            Save_EEPROM(InputBuffer[(start+5)%InputBufferLength]*4,tbloffset_thrR+2);
+            Save_EEPROM(InputBuffer[(start+6)%InputBufferLength]*4,tbloffset_thrderT+2);
+            Save_EEPROM((-1*InputBuffer[(start+7)%InputBufferLength]*4),tbloffset_thrderR+2);
+            
+            ThresholdT[1]=InputBuffer[(start+4)%InputBufferLength]*4;
+            ThresholdR[1]=InputBuffer[(start+5)%InputBufferLength]*4;
+            ThresholdDerT[1]=InputBuffer[(start+6)%InputBufferLength]*4;
+            ThresholdDerR[1]=InputBuffer[(start+7)%InputBufferLength]*4;
+            
+            OutputBuffer[17]= ThresholdT[1]/4;
+            OutputBuffer[18]= ThresholdR[1]/4;
+            OutputBuffer[19]= ThresholdDerT[1]/4;
+            OutputBuffer[20]= ThresholdDerR[1]/4;
+            break;
+        case 6:
+            if (InputBuffer[(start+4)%InputBufferLength]<=nSensors){   //message is valid              
+                Save_EEPROM(InputBuffer[(start+4)%InputBufferLength],tbloffset_nSens);
+                ActiveSens = InputBuffer[(start+4)%InputBufferLength];
+                OutputBuffer[2] = (ActiveSens*7)+8;    //Output message length
+                
+                Save_EEPROM(InputBuffer[(start+5)%InputBufferLength],tbloffset_MotFlag);  //change the state of motors (on/off)
+                MotFlag = InputBuffer[(start+5)%InputBufferLength];
+                OutputBuffer[3] = MotFlag;
+                
+                Save_EEPROM(InputBuffer[(start+6)%InputBufferLength],tbloffset_StimTime);  //change the stimulation time
+                StimTime = InputBuffer[(start+6)%InputBufferLength]; 
+                OutputBuffer[4] = StimTime;
+            }
+            break;
+        case 7:
+            StartRX = InputBuffer[(start+4)%InputBufferLength];
+            break;
+    }
 }
+*/
 
 ////////////////////////////////////////////////////////////////////////////////
 //Input:    Channel number in consideration (p)                               //
@@ -798,9 +837,9 @@ int main(int argc, char** argv){
    
     // Initialization of micro and peripheral      
     init_mcu();
-    tmr1_init();
+    //tmr1_init();
     init_uart();
-    init_ADC();   
+    //init_ADC();   
     
     circleColors(250,1);
     circleColors(250,0);
@@ -846,18 +885,16 @@ int main(int argc, char** argv){
     
     //	main's while
 	while (1){
-        circleColors(10,1);
-        if (NewDataArrived==1){ 
-            // echo back to two uarts
-            send_uart2(InputBuffer[(ind+9)%10]);
-            send_uart(ind);
-            send_uart(0xFF);
-            send_uart(InputBuffer[(ind+9)%10]);
-            NewDataArrived = 0;
-        }else{
-            //send_uart(0xF0);
-            //send_uart2(0xAB);
-        }        
+        
+    }
+    while(1){
+        if (!inBuffer1.isEmpty){
+            writeBuffer(readBuffer(&inBuffer1),&outBuffer1);
+        }
+        
+        if(!outBuffer1.isEmpty){// echo back uart2
+            send_uart(readBuffer(&outBuffer1));
+        }
     }
     
     // non va sotto mai.

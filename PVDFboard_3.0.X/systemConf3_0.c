@@ -225,8 +225,8 @@ void init_uart(void){
     U1STAbits.URXISEL0 = 0;         // Interrupt at every new word in RX buffer 
     U1STAbits.URXISEL1 = 0;
     
-    IPC2bits.U1RXIP = 6;            // priority level.
-    IPC3bits.U1TXIP = 5;           // priority level.
+    IPC2bits.U1RXIP = 5;            // priority level.
+    IPC3bits.U1TXIP = 4;             // priority level.
     
     IEC0bits.U1TXIE = 0;            // Enable UART TX interrupt
     IFS0bits.U1RXIF = 0;
@@ -238,20 +238,20 @@ void init_uart(void){
     //Communication on serial port 2 (bluetooth)  
     U2MODEbits.UARTEN = 0;          // UART disabled
     U2MODEbits.STSEL = 0;           // 1-Stop bit
-    U2MODEbits.PDSEL = 0b00;        // No Parity, 8-Data bits --> 8,N,1
+    U2MODEbits.PDSEL = 0;           // No Parity, 8-Data bits --> 8,N,1
     U2MODEbits.ABAUD = 0;           // Auto-Baud disabled
-    U2MODEbits.UEN = 0b00;          // Enable only UTX and URX
+    U2MODEbits.UEN = 0;             // Enable only UTX and URX
     U2MODEbits.BRGH = 1;            // Fast Speed Mode 
     U2BRG = 8;                      // Set Baud Rate to 115200 for port2
-    ANSBbits.ANSB1 = 0;             //RX pin is shared with AN2 = RB0. We must set as digital to make it work.
-    U2STAbits.UTXISEL0 = 0;         //Interrupt when the last character is shifted out 
-    U2STAbits.UTXISEL1 = 1;         //of the Transmit Shift Register; all transmit operation completed  (01))
+    ANSBbits.ANSB1 = 0;             // RX pin is shared with AN2 = RB0. We must set as digital to make it work.
+    U2STAbits.UTXISEL0 = 0;         // Interrupt when the last character is shifted out 
+    U2STAbits.UTXISEL1 = 1;         // of the Transmit Shift Register; all transmit operation completed  (01))
     
     U2STAbits.URXISEL0 = 0;         //Interrupt at every new word in RX buffer 
     U2STAbits.URXISEL1 = 0;
     
-    IPC7bits.U2RXIP = 8;            // recieve interrupt (8) highest priority   
-    IPC7bits.U2TXIP  = 7;           // send interrupt (7)  high priority
+    IPC7bits.U2RXIP  = 7;           // recieve interrupt 7 (0b111) highest priority   
+    IPC7bits.U2TXIP  = 6;           // send interrupt (6)  high priority
     
     IEC1bits.U2TXIE = 0;            // disable UART TX interrupt
     IFS1bits.U2RXIF = 0;            // reset the flag
@@ -262,18 +262,14 @@ void init_uart(void){
 }
    
 void send_uart (unsigned char msg){
-    
-    //OutputBuffer[0] = msg;
-    IEC0bits.U1TXIE = 1;   // ENABLE TX INTERRUPT so we can start the data send routine -> we should enable this only when there is the serial connection with the GUI
+    while(U1STAbits.TRMT == 0){}   
     U1TXREG = 0x00FF & (unsigned int) msg;
-//    U1TXREG = Message;                // Send a byte
-//    while(U1STAbits.TRMT == 0){       // Wait until the transmit shift register is empty and the transmit buffer is empty (the transmission has completed), it does it automatically
-//    }
+    
 }
 
 void send_uart2 (unsigned char msg){
-    U2TXREG = 0x00FF &(unsigned int) msg;
-    //while(!U2STAbits.TRMT){}
+    while (!U2STAbits.TRMT){} // waits for last transmission to end.
+    U2TXREG = msg;
 }
 
 char read_uart (){
