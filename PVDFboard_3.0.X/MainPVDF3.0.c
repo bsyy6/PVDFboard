@@ -35,6 +35,7 @@
 #include <stdbool.h> 
 #include <stdint.h>
 #include "buffers.h"
+#include "msgs.h"
 
 
 // MOTOR PORTS
@@ -158,27 +159,43 @@ unsigned int Timer = 0;                             //Variable to send to SW as 
 
 /***********/
 // SERIAL COMMUNICATION - Modified : Waleed March-2024
+uint8_t inBuffer1 [10];
+uint8_t msgData[20];    // extracted msgs go here. (can have more than one message inside)
+uint8_t msgs_idxs[3];   // the messages lenghts go here
 
-volatile Buffer inBuffer1 = BUFFER_INIT; 
-volatile Buffer outBuffer1 = BUFFER_INIT;
-volatile uint8_t byteRead[50];
 
-volatile Buffer inBuffer2 = BUFFER_INIT;
-volatile Buffer outBuffer2 = BUFFER_INIT;
+volatile Buffer b_inBuffer1; 
+volatile Buffer msgDataBuffer;
+volatile Buffer msgIdxsBuffer;
+
+uint8_t msgOutput[10];
+
+//
+uint8_t outBuffer1[10];
+volatile Buffer b_outBuffer1;
+//
+//
+//uint8_t inBuffer2 [10];
+//volatile Buffer b_inBuffer2; 
+//
+//uint8_t outBuffer2[10];
+//volatile Buffer b_outBuffer2;
+
+unsigned char byteRead[20] = {};
 
 unsigned char header[2] = {0xA1,0xA2};               
 unsigned char tail[2] = {0xA2,0xA1};
 
 /* communication state byte */
-typedef enum {
-    A1START, // expecting first header
-    A2START, // expecting second header        
-    SIZE,    // expecting total msg size
-    DATA,    // expecting data
-    A2END,   // expecting first tail
-    A1END,   // expecting second tail
-    ERROR,   // error 
-} comState;
+//typedef enum {
+//    A1START, // expecting first header
+//    A2START, // expecting second header        
+//    SIZE,    // expecting total msg size
+//    DATA,    // expecting data
+//    A2END,   // expecting first tail
+//    A1END,   // expecting second tail
+//    ERROR,   // error 
+//} comState;
 
 
 /***********/
@@ -309,8 +326,11 @@ void __attribute__((__interrupt__, no_auto_psv)) _U1RXInterrupt(void){
     // I put data in buffer nothing more nothing less.
     while(U1STAbits.URXDA){
         //writeBuffer(U1RXREG, &inBuffer1);
-        byteRead[iuart]  = U1RXREG;
-        iuart++;
+        //byteRead[iuart]  = U1RXREG;
+        //iuart++;
+        uint8_t temp;
+        temp = U1RXREG;
+        enq(&temp,&b_inBuffer1);
     }
     if (U1STAbits.OERR){
         U1STAbits.OERR = 0;
@@ -323,10 +343,11 @@ void __attribute__((__interrupt__, no_auto_psv)) _U2TXInterrupt(void){
     while(!U2STAbits.TRMT){}
     IFS1bits.U2TXIF = 0;  // Clear TX Interrupt flag
 }
+
 void __attribute__((__interrupt__, no_auto_psv)) _U2RXInterrupt(void){
-    while(U2STAbits.URXDA){
-        writeBuffer((unsigned char) (U2RXREG), &inBuffer2);
-    }
+//    while(U2STAbits.URXDA){
+// //         enq(&U1RXREG,&b_inBuffer2);;
+//    }
     if (U2STAbits.OERR){
         U2STAbits.OERR = 0;
     }
@@ -465,10 +486,10 @@ void ManageSerialTX(void){
 }
 */
 
-comState prevState = ERROR;
-comState state = A1START;
-//unsigned char size = 0;
-unsigned char countMsg = 0;
+//comState prevState = ERROR;
+//comState state = A1START;
+////unsigned char size = 0;
+//unsigned char countMsg = 0;
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -840,7 +861,14 @@ int main(int argc, char** argv){
     //tmr1_init();
     init_uart();
     //init_ADC();   
+    initBuffer(&b_inBuffer1,inBuffer1, sizeof(inBuffer1[0]), sizeof(inBuffer1)/sizeof(inBuffer1[0]));
+    initBuffer(&msgDataBuffer, msgData, sizeof(msgData[0]), sizeof(msgData)/sizeof(msgData[0]));
+    initBuffer(&msgIdxsBuffer, msgs_idxs, sizeof(msgs_idxs[0]), sizeof(msgs_idxs)/sizeof(msgs_idxs[0]));
     
+    msg M = initMsg(&msgDataBuffer,&b_inBuffer1,&msgIdxsBuffer,&msgOutput);
+    
+    
+    initBuffer(&b_outBuffer1,inBuffer1, sizeof(outBuffer1[0]), sizeof(outBuffer1)/sizeof(outBuffer1[0]));
     circleColors(250,1);
     circleColors(250,0);
     // Read last data saved in the EE Data Memory (EEPROM) before initializing the output buffer 
@@ -884,17 +912,23 @@ int main(int argc, char** argv){
     //U1TXREG = 0xA1;// THE FIRST WRITING IN THE TXREG WILL CALL THE FIRST INTERRUPT
     
     //	main's while
-	while (1){
-        
-    }
     while(1){
-        if (!inBuffer1.isEmpty){
-            writeBuffer(readBuffer(&inBuffer1),&outBuffer1);
-        }
-        
-        if(!outBuffer1.isEmpty){// echo back uart2
-            send_uart(readBuffer(&outBuffer1));
-        }
+        processMsg(&M);
+        if(M.msgsAvailable){
+            getMsg(&M);
+            for (int i = 0; i<M.msgDataSize; i++){
+                send_uart(msgOutput[i]);
+            }
+        }    
+//    if (!b_inBuffer1.isEmpty){  
+//        send_uart(0xFA);
+//        deq(&temp1,&b_inBuffer1);
+//        enq(&temp1,&b_outBuffer1);
+//    }
+//    if(!b_outBuffer1.isEmpty){// echo back uart2
+//            deq(&temp1,&b_outBuffer1);
+//            send_uart(temp1);
+//     }
     }
     
     // non va sotto mai.

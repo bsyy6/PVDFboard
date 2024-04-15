@@ -1,34 +1,159 @@
 #include "buffers.h"
 
-void writeBuffer(uint8_t byte, volatile Buffer *buffer) {
-    // check if you are going to over-write data not read yet.
-    // once this is true, it stays always true
+void initBuffer(volatile Buffer* buffer,void *data, uint8_t elementSize, uint8_t arraySize) {
+    buffer->array = data;
+    buffer->elementSize = elementSize;
+    buffer->arraySize = arraySize;
+    buffer->head = 0;
+    buffer->tail = 0;
+    buffer->bookmarkIdx = 0;
+    buffer->isEmpty = true;
+    buffer->isFull = false;
+    buffer->dataLoss = false;
+    buffer->Blocked = false;
+    buffer->whatIsLife = 42;
+}
+
+void enq(void *data, volatile Buffer *buffer) {
+    buffer->dataLoss |= buffer->isFull;
     
-    buffer->isFull |= ((buffer->tail == buffer->head) && !buffer->isEmpty);
-    if(BLOCK_WHEN_FULL &&  buffer->isFull){
+    if(BLOCK_WHEN_FULL &&  buffer->dataLoss){
         // doesn't add anymore
         return;
     }else{
-
-        // and now the buffer is no longer empty
+        memcpy((uint8_t *)buffer->array + buffer->elementSize * buffer->head, data, buffer->elementSize);
+        buffer->head = (buffer->head + 1) % buffer->arraySize;
         buffer->isEmpty = false;
-
-        // write data in head
-        buffer->data[buffer->head] = byte; 
-        // update head
-        buffer->head = (buffer->head+1) % BUFFER_SIZE;
+        buffer->isFull = buffer->head == buffer->tail;
+        if(buffer->Blocked){
+            buffer->isFull = buffer->head == buffer->bookmarkIdx;
+        }
+        return ;
     }
 }
 
-uint8_t readBuffer(volatile Buffer *buffer) {
-    if (buffer->isEmpty) {
-        // doesn't read anymore
-       return 0;
-    } else {
-        uint8_t byte = buffer->data[buffer->tail];
-        buffer->tail = (buffer->tail + 1) % BUFFER_SIZE;
-        // read everything there to read!
-        buffer->isEmpty = (buffer->head == buffer->tail);
-        return byte;
+void deq(void *data, volatile Buffer *buffer) {
+    if (buffer->isEmpty){
+        return;
     }
+    
+    memcpy(data, (uint8_t *)buffer->array + buffer->elementSize * buffer->tail, buffer->elementSize);
+    buffer->tail = (buffer->tail + 1) % buffer->arraySize;
+    buffer->isFull = false;
+    buffer->isEmpty = buffer->head == buffer->tail;
+    return;
+}
+
+void nEnq(void *data, volatile Buffer *buffer, uint8_t size) {
+    //check if there is enough space in the buffer
+    if(buffer->arraySize - buffer->head + buffer->tail < size){
+        buffer->dataLoss = true;
+        return;
+    }else{
+        for (uint8_t i = 0; i < size; i++) {
+            enq((uint8_t *)data + buffer->elementSize * i, buffer);
+        }
+    }
+}
+
+void nDeq(void *data, volatile Buffer *buffer, uint8_t size) {
+
+    if(buffer->arraySize - buffer->head + buffer->tail < size){
+        size = buffer->arraySize - buffer->head + buffer->tail + 1;
+    }
+
+    for (uint8_t i = 0; i < size; i++) {
+        deq((uint8_t *)data + buffer->elementSize * i, buffer);
+    }
+    
+}
+
+void reset(volatile Buffer *buffer) {
+    buffer->head = 0;
+    buffer->tail = 0;
+    buffer->isEmpty = true;
+    buffer->isFull = false;
+    buffer->dataLoss = false;
+    buffer->Blocked = false;
+}
+
+uint8_t howMuchData(volatile Buffer *buffer) {
+    if (buffer->isEmpty) {
+        return 0;
+    }
+    if (buffer->head > buffer->tail) {
+        return buffer->head - buffer->tail;
+    }
+    return buffer->arraySize - buffer->tail + buffer->head;
+}
+
+void setBookmark(volatile Buffer *buffer){
+    if(!buffer->Blocked){
+        buffer->Blocked = true;
+        buffer->bookmarkIdx = buffer->tail-1;
+    }
+}
+
+void removeBookmark(volatile Buffer *buffer){
+    buffer->Blocked = false;
+    if(buffer->isFull && buffer->isEmpty){
+        buffer->isFull = false; // release the buffer
+    }
+}
+
+bool findNextBookmark(volatile Buffer *buffer){
+    if(buffer->Blocked){
+    return(findFlag(buffer, (uint8_t *)buffer->array + buffer->elementSize * buffer->bookmarkIdx));
+    }else{
+        return false;
+    }
+}
+
+
+bool findFlag(volatile Buffer *buffer, void *data){
+
+    uint8_t i = buffer->tail; // where to start searching
+
+    if(buffer->Blocked){
+        i = (buffer->bookmarkIdx+1) % buffer->arraySize;
+    }
+
+    for (  ; i != buffer->head; i = (i+1) % buffer->arraySize) {
+        if(memcmp((uint8_t *)buffer->array + buffer->elementSize * i, data, buffer->elementSize) == 0){
+        buffer->bookmarkIdx = i;
+        return true;
+        }
+    }
+    // if the data is not found
+    return false;
+}
+
+void jumpToBookmark(volatile Buffer *buffer){
+    if(buffer->Blocked){
+        buffer->tail = (buffer->bookmarkIdx + 1) % buffer->arraySize;
+        if(buffer->head == buffer->tail){
+            buffer->isEmpty = true; // no data to read
+            buffer->isFull = true; // no place to write
+            // you should unblock the buffer before being able to use it again
+        }
+        
+    }
+    return;
+    
+}
+
+void rollback( volatile Buffer *buffer, uint8_t N){
+    // move back the last N elements written incorrectly
+    
+    if (buffer->isEmpty || N == 0) {
+        return;
+    }
+    // moves the head backwards by N elements
+    if(N >= howMuchData(buffer)){
+        buffer->head = buffer->tail;
+        buffer->isEmpty = true;
+    }else{
+        buffer->head = (buffer->arraySize - N + buffer->head) % buffer->arraySize;
+    }
+    return;
 }

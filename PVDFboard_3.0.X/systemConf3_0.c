@@ -102,7 +102,8 @@ void init_mcu(){
         
     //Clock initialization
     CLKDIVbits.RCDIV = 0b000;       // Post-scaler = 1, default would be 2
-    
+    OSCTUNbits.TUN = 0b011111;       // add on waleed, crystal frequency was not accurate.
+
     //Data EEPROM table page
     
     
@@ -263,7 +264,7 @@ void init_uart(void){
    
 void send_uart (unsigned char msg){
     while(U1STAbits.TRMT == 0){}   
-    U1TXREG = 0x00FF & (unsigned int) msg;
+    U1TXREG = msg;
     
 }
 
