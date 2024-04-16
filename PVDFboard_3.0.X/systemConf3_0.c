@@ -229,7 +229,7 @@ void init_uart(void){
     IPC2bits.U1RXIP = 5;            // priority level.
     IPC3bits.U1TXIP = 4;             // priority level.
     
-    IEC0bits.U1TXIE = 0;            // Enable UART TX interrupt
+    IEC0bits.U1TXIE = 1;            // Enable UART TX interrupt
     IFS0bits.U1RXIF = 0;
     IEC0bits.U1RXIE = 1;            // Enable UART RX interrupt
     U1MODEbits.UARTEN = 1;          // Enable UART
