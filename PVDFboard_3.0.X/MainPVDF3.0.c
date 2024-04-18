@@ -160,6 +160,10 @@ unsigned int Timer = 0;                             //Variable to send to SW as 
 uint8_t byteRecieved =0;
 /***********/
 // SERIAL COMMUNICATION - Modified : Waleed March-2024
+
+uint8_t OutputBuffer[23];
+volatile Buffer b_OutputBuffer;
+
 uint8_t inBuffer1 [10];
 uint8_t msgData[20];    // extracted msgs go here. (can have more than one message inside)
 uint8_t msgs_idxs[3];   // the messages lenghts go here
@@ -171,8 +175,7 @@ volatile Buffer msgIdxsBuffer;
 
 uint8_t msgOutput[10];
 
-uint8_t OutputBuffer[20];
-volatile Buffer b_OutputBuffer;
+
 
 
 //uint8_t inBuffer2 [10];
@@ -189,7 +192,7 @@ unsigned char tail[2] = {0xA2,0xA1};
 /***********/
 
 unsigned char checkCOM = 0;
-unsigned char StartRX = 1;             // wait StartRX=1 for enabling serial communication
+unsigned char StartRX = 0;             // wait StartRX=1 for enabling serial communication
 volatile unsigned char ind=0;          // shifts RX buffer
 unsigned char NewDataArrived = 0;      // Flag to signal new data in RX
 unsigned char SendData = 0;            // Flag to allow sending data at 100Hz
@@ -239,18 +242,19 @@ void __attribute__((__interrupt__, no_auto_psv)) _T1Interrupt(void){
         tRefractory[q]++;
     }
 
-    // ADC enable to sample the analog input
-    IFS0bits.AD1IF = 0;
-    IEC0bits.AD1IE = 1;  // Enable the interrupts while reading all five sensors
-
-    configure_sequence_MUXA(p,p+1);   // Create the sequence of channels for MUXA to read
-    AD1CON1bits.ASAM = 1;      // Start the sampling of the channels in sequence 
-    AD1CON1bits.ADON = 1;      // We can only activate the ADC here because to change the settings it must be off 
+//    // ADC enable to sample the analog input
+//    IFS0bits.AD1IF = 0;
+//    IEC0bits.AD1IE = 1;  // Enable the interrupts while reading all five sensors
+//
+//    configure_sequence_MUXA(p,p+1);   // Create the sequence of channels for MUXA to read
+//    AD1CON1bits.ASAM = 1;      // Start the sampling of the channels in sequence 
+//    AD1CON1bits.ADON = 1;      // We can only activate the ADC here because to change the settings it must be off 
 
 	IFS0bits.T1IF = 0; 					// Clear Timer1 interrupt flag
    
 }
 
+/*
 void __attribute__((__interrupt__, no_auto_psv)) _ADC1Interrupt(void){
     p = 0;
     PVDFsensor[p] = ADC1BUF0;         // Read the AN9 channel conversion result
@@ -269,14 +273,19 @@ void __attribute__((__interrupt__, no_auto_psv)) _ADC1Interrupt(void){
     AD1CON1bits.ADON = 0;
     IFS0bits.AD1IF = 0;
 }
+*/
 
-
+volatile char ix = 0;
 // UART1 interrupts
 void __attribute__((__interrupt__, no_auto_psv)) _U1TXInterrupt(void){
-    if(!b_OutputBuffer.isEmpty){
-            deq(&OutByteToSend,&b_OutputBuffer);
-            U1TXREG = OutByteToSend;
-    }
+//    if( ix < 10){
+//            U1TXREG = ix;
+//            ix++;
+//    }else{
+//        ix = 0;
+//        IEC0bits.U1TXIE = 0;
+//        IFS0bits.U1TXIF = 0;  // Clear TX Interrupt flag
+//    }
     while(!U1STAbits.TRMT){}
     IFS0bits.U1TXIF = 0;  // Clear TX Interrupt flag
 }
@@ -816,17 +825,19 @@ int main(int argc, char** argv){
     init_mcu();
     tmr1_init();
     init_uart();
-    init_ADC();
     
+    //init_ADC();
+    initBuffer(&b_OutputBuffer, OutputBuffer, sizeof(OutputBuffer[0]), sizeof(OutputBuffer)/sizeof(OutputBuffer[0]));
     // initialize communication buffers for reading message M on uart1 
-    initBuffer(&b_inBuffer1,inBuffer1, sizeof(inBuffer1[0]), sizeof(inBuffer1)/sizeof(inBuffer1[0]));
+    initBuffer(&b_inBuffer1, inBuffer1, sizeof(inBuffer1[0]), sizeof(inBuffer1)/sizeof(inBuffer1[0]));
     initBuffer(&msgDataBuffer, msgData, sizeof(msgData[0]), sizeof(msgData)/sizeof(msgData[0]));
     initBuffer(&msgIdxsBuffer, msgs_idxs, sizeof(msgs_idxs[0]), sizeof(msgs_idxs)/sizeof(msgs_idxs[0]));
+      // The message sent out through uart1
+    
+    
     msg M = initMsg(&msgDataBuffer,&b_inBuffer1,&msgIdxsBuffer,&msgOutput);
     
-    // The message sent out through uart1
-    initBuffer(&b_OutputBuffer,OutputBuffer, sizeof(OutputBuffer[0]), sizeof(OutputBuffer)/sizeof(OutputBuffer[0]));
-    
+  
     // little dance
     circleColors(250,1);
     circleColors(250,0);
@@ -865,13 +876,13 @@ int main(int argc, char** argv){
     TMR1_ENABLE = 1;                // Enable Timer1
     
     // start sampling
-    AD1CON1bits.SAMP = 1; 
+    //AD1CON1bits.SAMP = 1; 
 
     set_LED('G');
-    
+    //IEC0bits.U1TXIE = 1;
+    //U1TXREG = 0x0A;
+    IEC0bits.U1TXIE = 1;
     while (1){
-        U1TXREG = 0x0A;
-       
         copyBuffer(w);
 
         if (icheckEvent==1){
@@ -895,12 +906,6 @@ int main(int argc, char** argv){
             set_LED('G');
         }
         
-        // every 100Hz
-        if (SendData==1  && (StartRX==1 || checkCOM==1) && b_OutputBuffer.isEmpty){
-            checkCOM=0;
-            SendData=0;
-            ManageSerialTX();      
-        }
         
         // check if messages exist in input
         processMsg(&M);
@@ -908,6 +913,17 @@ int main(int argc, char** argv){
             getMsg(&M);
             ReadCmd((char*)msgOutput);
         }
+        
+        // every 100Hz
+        if (SendData==1  && (StartRX==1 || checkCOM == 1) && b_OutputBuffer.isEmpty ){
+            checkCOM=0;
+            SendData=0;
+            ManageSerialTX(); 
+            // start the sending 
+            deq(&OutByteToSend, &b_OutputBuffer);
+            U1TXREG = OutByteToSend;
+        }
+        
         
         // check if there are bytes to send, sends the first byte.
         if(!b_OutputBuffer.isEmpty){
