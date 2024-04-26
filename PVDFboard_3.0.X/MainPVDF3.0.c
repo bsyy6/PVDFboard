@@ -36,6 +36,7 @@
 #include <stdint.h>
 #include "buffers.h"
 #include "msgs.h"
+#include "bt_msgs.h"
 
 
 // MOTOR PORTS
@@ -176,6 +177,18 @@ volatile Buffer msgIdxsBuffer;
 uint8_t msgOutput[10];
 
 
+// Bluetooth
+uint8_t OutputBuffer2[26];
+volatile Buffer b_OutputBuffer2;
+
+uint8_t InputBuffer2[30];
+volatile Buffer b_InputBuffer2;
+
+
+bool flag_BT_reset = false;
+unsigned char BT_in = 0;
+
+
 
 
 //uint8_t inBuffer2 [10];
@@ -215,6 +228,8 @@ void ReadCmd(char* msgHolder);
 void init_buffer(void);
 void sr_LED_primary(char led, bool state);
 void set_LED(char led);
+uint8_t getChecksum(uint8_t* msg, uint8_t n);
+void init_BT();
 
 //Timer1 interrupt
 void __attribute__((__interrupt__, no_auto_psv)) _T1Interrupt(void){ 
@@ -278,14 +293,6 @@ void __attribute__((__interrupt__, no_auto_psv)) _ADC1Interrupt(void){
 volatile char ix = 0;
 // UART1 interrupts
 void __attribute__((__interrupt__, no_auto_psv)) _U1TXInterrupt(void){
-//    if( ix < 10){
-//            U1TXREG = ix;
-//            ix++;
-//    }else{
-//        ix = 0;
-//        IEC0bits.U1TXIE = 0;
-//        IFS0bits.U1TXIF = 0;  // Clear TX Interrupt flag
-//    }
     while(!U1STAbits.TRMT){}
     IFS0bits.U1TXIF = 0;  // Clear TX Interrupt flag
 }
@@ -825,18 +832,23 @@ int main(int argc, char** argv){
     init_mcu();
     tmr1_init();
     init_uart();
+    init_BT();
     
     //init_ADC();
+    
+    
+    // Uart 1 buffers
     initBuffer(&b_OutputBuffer, OutputBuffer, sizeof(OutputBuffer[0]), sizeof(OutputBuffer)/sizeof(OutputBuffer[0]));
     // initialize communication buffers for reading message M on uart1 
     initBuffer(&b_inBuffer1, inBuffer1, sizeof(inBuffer1[0]), sizeof(inBuffer1)/sizeof(inBuffer1[0]));
     initBuffer(&msgDataBuffer, msgData, sizeof(msgData[0]), sizeof(msgData)/sizeof(msgData[0]));
     initBuffer(&msgIdxsBuffer, msgs_idxs, sizeof(msgs_idxs[0]), sizeof(msgs_idxs)/sizeof(msgs_idxs[0]));
-      // The message sent out through uart1
-    
-    
+    // The message sent out through uart1
     msg M = initMsg(&msgDataBuffer,&b_inBuffer1,&msgIdxsBuffer,&msgOutput);
     
+    // Uart 2 buffers
+    initBuffer(&b_OutputBuffer2, OutputBuffer2, sizeof(OutputBuffer2[0]), sizeof(OutputBuffer)/sizeof(OutputBuffer2[0]));
+    initBuffer(&b_InputBuffer2, InputBuffer2, sizeof(InputBuffer2[0]), sizeof(InputBuffer2)/sizeof(InputBuffer2[0]));
   
     // little dance
     circleColors(250,1);
@@ -879,9 +891,8 @@ int main(int argc, char** argv){
     //AD1CON1bits.SAMP = 1; 
 
     set_LED('G');
-    //IEC0bits.U1TXIE = 1;
-    //U1TXREG = 0x0A;
     IEC0bits.U1TXIE = 1;
+    
     while (1){
         copyBuffer(w);
 
@@ -906,7 +917,6 @@ int main(int argc, char** argv){
             set_LED('G');
         }
         
-        
         // check if messages exist in input
         processMsg(&M);
         if(M.msgsAvailable){
@@ -918,20 +928,91 @@ int main(int argc, char** argv){
         if (SendData==1  && (StartRX==1 || checkCOM == 1) && b_OutputBuffer.isEmpty ){
             checkCOM=0;
             SendData=0;
-            ManageSerialTX(); 
-            // start the sending 
-            deq(&OutByteToSend, &b_OutputBuffer);
-            U1TXREG = OutByteToSend;
+            ManageSerialTX();
         }
         
-        
-        // check if there are bytes to send, sends the first byte.
+        // check if there are bytes to send.
         if(!b_OutputBuffer.isEmpty){
             deq(&OutByteToSend, &b_OutputBuffer);
             U1TXREG = OutByteToSend;
         }
+        
     }
 	return (EXIT_SUCCESS);
 }
 
 
+void init_BT(){
+    BT_RESET = 0;
+    __delay_ms(10); //BT user manual (pag. 33)
+    BT_RESET = 1;  
+    flag_BT_reset = true;
+    BT_in = 1;
+}
+
+void connect_BT(){
+    
+        BT_in = 2;    
+        OutputBuffer2[0]=0x02;
+        OutputBuffer2[1]=0x06;
+        OutputBuffer2[2]=0x06;
+        OutputBuffer2[3]=0x00;
+        OutputBuffer2[4]=0x8E; //dongle BT MAC
+        OutputBuffer2[5]=0x51; //dongle BT MAC
+        OutputBuffer2[6]=0x32; //dongle BT MAC
+        OutputBuffer2[7]=0xDA; //dongle BT MAC
+        OutputBuffer2[8]=0x18; //dongle BT MAC
+        OutputBuffer2[9]=0x00; //dongle BT MAC
+        OutputBuffer2[10]=0x2D; //checksum
+        
+    for (int i = 0; i<11; i++) {
+      U2TXREG =   OutputBuffer2[i];
+        if (i == 2 || i == 5 || i == 8 ){
+           __delay_ms(2);
+        }
+    }
+}
+
+
+void init_buffer2(void) { 
+    
+    OutputBuffer2[0] = 0x01; // BT_header;
+    OutputBuffer2[1] = 0x04;
+    OutputBuffer2[2] = 0x17;     // this should be the number of data sent through the usart, length of the message
+    OutputBuffer2[3] = 0x00;
+    
+    OutputBuffer2[4] = 0xA1;
+    OutputBuffer2[5] = 0xA2;
+    OutputBuffer2[6] = (ActiveSens*7)+9;
+    OutputBuffer2[7] = MotFlag;
+    OutputBuffer2[8] = StimTime;
+    OutputBuffer2[14] = ThresholdT[0]/4;      // the threshold voltage sensor 1  - read from the EEPROM
+    OutputBuffer2[15] = ThresholdR[0]/4;
+    OutputBuffer2[16] = ThresholdDerT[0]/4;
+    OutputBuffer2[17] = (char)-1*ThresholdDerR[0]/4;
+    OutputBuffer2[21] = ThresholdT[1]/4;     // the threshold voltage sensor 2  - read from the EEPROM
+    OutputBuffer2[22] = ThresholdR[1]/4;
+    OutputBuffer2[23] = ThresholdDerT[1]/4;
+    OutputBuffer2[24] = (char)-1*ThresholdDerR[1]/4;
+    OutputBuffer2[25] = 0xA2;
+    OutputBuffer2[26] = 0xA1;  
+ 
+    OutputBuffer2[27] = getChecksum(&OutputBuffer2,27);
+}
+
+void ManageSerialTX2(void){
+    
+    OutputBuffer2[9] = (Timer & 0xFF00) >> 8;   // the voltage level read at 100Hz
+    OutputBuffer2[10] = (Timer & 0x00FF);
+    for (uint8_t j=0; j<ActiveSens; j++){
+        aux = 7*j;
+        OutputBuffer2[11+aux] = MotorsActivation[j];     // For each sensor/motor we want to send its state of activation
+        OutputBuffer2[12+aux] = (iPVDFFilteredBuffer[StartDetection][j] & 0xFF00) >> 8;   // the voltage level read at 100Hz
+        OutputBuffer2[13+aux] = (iPVDFFilteredBuffer[StartDetection][j] & 0x00FF);
+    }
+    OutputBuffer2[27] = getChecksum(&OutputBuffer2,27);    
+}
+
+void ManageSerialRX2(void){
+
+}

@@ -2,26 +2,26 @@
 #include "buffers.h"
 
 msg initMsg( volatile Buffer *msgs_buffer, volatile Buffer *raw_buffer, volatile Buffer *msgs_idxs, void *msgData){
+    
     msg M;
     M.rawBuffer = raw_buffer;
     M.msgQueue = msgs_buffer;
     M.msgIdx = msgs_idxs;
+
     // where it outputs the message
     M.msgData = msgData;
     M.msgDataSize = 0;
-    //
-    M.state = START1;
-    M.msgSize = 0;
     M.msgsAvailable = 0;
+
+    // where it outputs the message
+    M.msgSize = 0;
+    M.msgBytesLeft = 0;
     M.byte = 0;
     M.prevByte = 0;
     M.state = START1;
     M.prevState = START1;
-    M.size = 0;
-    M.partCount = 0;
     return M;
 }
-
 
 void processMsg(msg *m){
     if(m->rawBuffer->isEmpty){
@@ -36,7 +36,7 @@ void processMsg(msg *m){
             case START1:
                 if(m->byte == firstStartFlag){
                     m->state = START2;
-                    m->msgSize = 0;
+                    m->msgBytesLeft = 0;
                     setBookmark(m->rawBuffer);
                 }
                 break;
@@ -48,24 +48,24 @@ void processMsg(msg *m){
                 }
                 break;
             case SIZE:
-                m->msgSize = m->byte - (NUM_OF_FLAGS+NUM_OF_EXTRA_BYTES);
-                // take metadata 
-                //enq(&m->msgQueue->head, m->msgIdx); // mark where message starts and its length
-                enq(&m->msgSize, m->msgIdx); 
                 if(m->byte > MAX_MSG_SIZE || m->byte < MIN_MSG_SIZE){
                     m->state = ERROR;
                 }else{
+                    m->msgSize = m->byte - (NUM_OF_FLAGS+NUM_OF_EXTRA_BYTES);
+                    m->msgBytesLeft = m->msgSize;
+                    enq(&m->msgSize, m->msgIdx);
                     m->state = DATA;
                 }
                 break;
             case DATA:
                 // messageStart 
                 enq(&m->byte,m->msgQueue);  // add the byte to the message buffer
-                 m->msgSize = m->msgSize-1; 
-                if(m->msgSize == 0){
+                m->msgBytesLeft--; 
+                if (m->msgBytesLeft == 0){
                     m->state = END1;
                 }
                 break;
+
             case END1:
                 if(m->byte == firstEndFlag){
                     m->state = END2;
@@ -82,7 +82,12 @@ void processMsg(msg *m){
                     m->state = ERROR;
                 }
                 break;
+                
             case ERROR:
+                if(m->prevState > 2){
+                    rollback(m->msgIdx, 1);
+                    rollback(m->msgQueue, (m->msgSize-m->msgBytesLeft) );
+                }
                 if(findNextBookmark(m->rawBuffer)){
                     m->state = START2;
                     m->prevState = START1;
@@ -90,10 +95,8 @@ void processMsg(msg *m){
                     jumpToBookmark(m->rawBuffer);
                 }else{
                     removeBookmark(m->rawBuffer);
-                }
-                if(m->msgSize != 0){ // clear the last two data points in msgIdx
-                    rollback(m->msgIdx ,1);
-                    rollback(m->msgQueue,m->partCount);
+                    m->prevState = START1;
+                    m->state = START1;
                 }
                 break;
         }   

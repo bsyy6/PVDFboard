@@ -8,6 +8,7 @@
       <itemPath>HeaderPVDF.h</itemPath>
       <itemPath>buffers.h</itemPath>
       <itemPath>msgs.h</itemPath>
+      <itemPath>bt_msgs.h</itemPath>
     </logicalFolder>
     <logicalFolder name="LinkerScript"
                    displayName="Linker Files"
@@ -20,6 +21,7 @@
       <itemPath>systemConf3_0.c</itemPath>
       <itemPath>buffers.c</itemPath>
       <itemPath>msgs.c</itemPath>
+      <itemPath>bt_msgs.c</itemPath>
     </logicalFolder>
     <logicalFolder name="ExternalFiles"
                    displayName="Important Files"
@@ -41,7 +43,7 @@
         <platform>3</platform>
       </toolsSet>
       <packs>
-        <pack name="PIC24F-KA-KL-KM_DFP" vendor="Microchip" version="1.3.49"/>
+        <pack name="PIC24F-KA-KL-KM_DFP" vendor="Microchip" version="1.4.83"/>
       </packs>
       <ScriptingSettings>
       </ScriptingSettings>
@@ -430,7 +432,6 @@
         <property key="UART 1" value="true"/>
         <property key="UART 2" value="true"/>
         <property key="debugoptions.useswbreakpoints" value="false"/>
-        <property key="firmware.download.all" value="false"/>
         <property key="hwtoolclock.frcindebug" value="false"/>
         <property key="memories.aux" value="false"/>
         <property key="memories.bootflash" value="true"/>

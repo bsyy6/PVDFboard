@@ -415,34 +415,7 @@ void init_ADC(void){
 //a) Clear the AD1IF bit.
 //b) Select A/D interrupt priority.
 
-void init_BT(){
-    BT_RESET = 0;
-    __delay_ms(10); //BT user manual (pag. 33)
-    BT_RESET = 1;  
-    flag_BT_reset = true;
-    BT_in = 1;
-}
 
 
-void connect_BT(){
-    
-        BT_in=2;    
-        OutputBuffer2[0]=0x02;
-        OutputBuffer2[1]=0x06;
-        OutputBuffer2[2]=0x06;
-        OutputBuffer2[3]=0x00;
-        OutputBuffer2[4]=0x8E; //dongle BT MAC
-        OutputBuffer2[5]=0x51; //dongle BT MAC
-        OutputBuffer2[6]=0x32; //dongle BT MAC
-        OutputBuffer2[7]=0xDA; //dongle BT MAC
-        OutputBuffer2[8]=0x18; //dongle BT MAC
-        OutputBuffer2[9]=0x00; //dongle BT MAC
-        OutputBuffer2[10]=0x2D; //checksum
-        
-    for (int i = 0; i<11; i++) {
-      U2TXREG =   OutputBuffer2[i];
-        if (i == 2 || i == 5 || i == 8 ){
-           __delay_ms(2);
-        }
-    }
-}
+
+

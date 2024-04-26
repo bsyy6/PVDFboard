@@ -1,27 +1,17 @@
-#ifndef MSGS_H
-#define MSGS_H
+#ifndef BT_MSGS_H
+#define BT_MSGS_H
 
 #include "buffers.h"
 
-// message structure => [firstStartFlag,seocondStartFlag,Size,{DATA[]},firstEndFlag,firstStartFlag]
-#define firstStartFlag 0xA1
-#define secondStartFlag 0xA2
-#define firstEndFlag 0xA2
-#define secondEndFlag 0xA1
-
-#define NUM_OF_FLAGS 4 //  2 start flags + 2 end flags
-#define NUM_OF_EXTRA_BYTES 1 // 1 byte for size
-#define MIN_MSG_SIZE (NUM_OF_FLAGS+NUM_OF_EXTRA_BYTES+1)
-#define MAX_MSG_SIZE 15 // maximum expected single message size
-#define MAX_MSG_IN_BUFFER 2 // maximum number of messages in buffer
-
+#define BT_MAX_MSG_SIZE 64
+#define BT_MIN_MSG_SIZE 1
 typedef enum {
     START1, // waiting for first flag
     START2, // waiting for second flag       
-    SIZE, // checking size
+    SIZE1, // checking size
+    SIZE2, // checking size
     DATA, // getting data
-    END1,
-    END2,
+    CS,   // waiting for checksum
     ERROR, // error
 } State;
 
@@ -38,8 +28,7 @@ typedef struct {
     uint8_t msgsAvailable;
     
     // private variables
-    uint8_t msgSize;
-    uint8_t msgBytesLeft;
+    uint16_t msgSize;
     uint8_t startSearch;
     State   state;
     State   prevState;
@@ -47,12 +36,19 @@ typedef struct {
     uint8_t prevByte;
     uint8_t size;
     uint8_t msgCount;
-}msg;
+    uint16_t partCount;
+
+    // start flags
+    uint8_t firstStartFlag;
+    uint8_t secondStartFlag;
+    uint8_t endFlag;
+}BT_msg;
 
 
 
-msg initMsg( volatile Buffer *msgs_buffer, volatile Buffer *raw_buffer, volatile Buffer *msgs_idxs, void *msgData);
-void processMsg(msg *m);
-void getMsg(msg *m);
-
-#endif // MSGS_H
+BT_msg initMsg( volatile Buffer *msgs_buffer, volatile Buffer *raw_buffer, volatile Buffer *msgs_idxs, void *msgData);
+void processMsg(BT_msg *m);
+void getMsg(BT_msg *m);
+uint8_t calcCS_buffer(Buffer* buffer, uint8_t size); // calculates CS of buffer until size
+uint8_t getChecksum(uint8_t* arr, uint8_t n);       // calcuates CS of an array
+#endif // MACRO
