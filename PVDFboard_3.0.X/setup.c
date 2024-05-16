@@ -1,57 +1,4 @@
-
-/*
- * File:   systemConf.c
- * Author: rebeccabaldi
- *
- * Created on June 8, 2020, 7:02 PM
- */
-
-
-// FBS
-#pragma config BWRP = OFF               // Boot Segment Write Protect (Disabled)
-#pragma config BSS = OFF                // Boot segment Protect (No boot flash segment)
-
-// FGS
-#pragma config GWRP = OFF               // General Segment Flash Write Protect (General segment may be written)
-#pragma config GSS0 = OFF               // General Segment Code Protect (No Protection)
-
-// FOSCSEL
-#pragma config FNOSC = FRCDIV            // Oscillator Select (8MHz FRC with Postscaler (FRCDIV)))
-#pragma config SOSCSRC = DIG            // SOSC Source Type (Digital Mode for use with external clock on SCLKI)
-#pragma config LPRCSEL = HP             // LPRC Power and Accuracy (High Power/High Accuracy)
-#pragma config IESO = ON                // Internal External Switch Over bit (Internal External Switchover mode enabled (Two-speed Start-up enabled))
-
-// FOSC
-#pragma config POSCMD = NONE            // Primary Oscillator Mode (Primary oscillator disabled)
-#pragma config OSCIOFNC = ON            // CLKO Pin I/O Function (Port I/O enabled (CLKO disabled))
-#pragma config POSCFREQ = HS            // Primary Oscillator Frequency Range (Primary Oscillator/External Clock frequency >8MHz)
-#pragma config SOSCSEL = SOSCHP         // SOSC Power Selection Configuration bits (Secondary Oscillator configured for high-power operation)
-#pragma config FCKSM = CSECME           // Clock Switching and Monitor Selection (Clock Switching and Fail-safe Clock Monitor Enabled)
-
-// FWDT
-#pragma config WDTPS = PS32768          // Watchdog Timer Postscale Select bits (1:32768)
-#pragma config FWPSA = PR128            // WDT Prescaler bit (WDT prescaler ratio of 1:128)
-#pragma config FWDTEN = SWON            // Watchdog Timer Enable bits (WDT controlled with SWDTEN bit setting)
-#pragma config WINDIS = OFF             // Windowed Watchdog Timer Disable bit (Standard WDT selected (windowed WDT disabled))
-
-// FPOR
-#pragma config BOREN = BOR3             // Brown-out Reset Enable bits (Enabled in hardware; SBOREN bit disabled)
-#pragma config PWRTEN = ON              // Power-up Timer Enable (PWRT enabled)
-#pragma config I2C1SEL = PRI            // Alternate I2C1 Pin Mapping bit (Default SCL1/SDA1 Pins for I2C1)
-#pragma config BORV = V18               // Brown-out Reset Voltage bits (Brown-out Reset at 1.8V)
-#pragma config MCLRE = ON               // MCLR Pin Enable bit (RA5 input disabled; MCLR enabled)
-
-// FICD
-#pragma config ICS = PGx1               // ICD Pin Placement Select (EMUC/EMUD share PGC1/PGD1)
-
-// #pragma config statements should precede project file includes.
-// Use project enums instead of #define for ON and OFF.   
-
-#include <p24F16KL401.h>
-#include "xc.h"
-#include "HeaderPVDF.h"
-
-#define BRGVAL ((FCY/BAUDRATE)/4)-1 // Baud Rate definition
+#include "setup.h"
 
 ////////////////////////////////////////////////////////////////////////////////
 //Input:    None                                                              //
@@ -102,7 +49,7 @@ void init_mcu(){
         
     //Clock initialization
     CLKDIVbits.RCDIV = 0b000;       // Post-scaler = 1, default would be 2
-    OSCTUNbits.TUN = 0b011111;       // add on waleed, crystal frequency was not accurate.
+    //OSCTUNbits.TUN = 0b0111;//0b011111;       // add on waleed, crystal frequency was not accurate.
 
     //Data EEPROM table page
     
@@ -118,6 +65,7 @@ void init_mcu(){
     //Define motor output ports
     TRISAbits.TRISA4 = 0;    // MOT1
     TRISAbits.TRISA6 = 0;    // MOT2
+    TRISAbits.TRISA1 = 0;    // debug
     
     //Bluetooth configuration
     TRISBbits.TRISB8 = 0;   // BT_RESET (output)
@@ -141,7 +89,7 @@ void tmr1_init(){ // 16 bit Timer
     T1CONbits.TCS = 0;              // Internal Clock
 
     TMR1 = 0x0000;                  // Clear timer register
-    PR1 = 4000;                      // CLK = FOSC/2 = 250 KHz   
+    PR1 = 16000;                      // CLK = FOSC*PLL/2 = 250 KHz   
     
     IPC0bits.T1IP = 3;               // priority 3
     
@@ -218,8 +166,12 @@ void init_uart(void){
     U1MODEbits.PDSEL = 0b00;        // No Parity, 8-Data bits --> 8,N,1
     U1MODEbits.ABAUD = 0;           // Auto-Baud disabled
     U1MODEbits.UEN = 0b00;          // Enable only UTX and URX
-    U1MODEbits.BRGH = 1;            // Fast Speed Mode 
-    U1BRG = 8;                      // Set Baud Rate to 115200
+    #ifdef BRGH_SET   
+    U1MODEbits.BRGH = 1;            // Fast Speed Mode
+    #else
+    U1MODEbits.BRGH = 0;            // Normal Mode
+    #endif
+    U1BRG = BRGVAL;                 // Set Baud Rate to 115200
     ANSBbits.ANSB2 = 0;             // HERE LIED AN ERROR!! RX pin is shared with AN4 = RB2. We must set as digital to make it work.
     U1STAbits.UTXISEL0 = 0;         // Interrupt when the last character is shifted out 
     U1STAbits.UTXISEL1 = 1;         // of the Transmit Shift Register; all transmit operation completed  (01))
@@ -229,7 +181,7 @@ void init_uart(void){
     IPC2bits.U1RXIP = 5;            // priority level.
     IPC3bits.U1TXIP = 2;            // priority level.
     
-    IEC0bits.U1TXIE = 0;            // Enable UART TX interrupt
+    IEC0bits.U1TXIE = 0;            // disable UART TX interrupt
     IFS0bits.U1RXIF = 0;
     IEC0bits.U1RXIE = 1;            // Enable UART RX interrupt
     U1MODEbits.UARTEN = 1;          // Enable UART
@@ -243,9 +195,14 @@ void init_uart(void){
     U2MODEbits.PDSEL = 0;           // No Parity, 8-Data bits --> 8,N,1
     U2MODEbits.ABAUD = 0;           // Auto-Baud disabled
     U2MODEbits.UEN = 0;             // Enable only UTX and URX
+    #ifdef BRGH_SET 
     U2MODEbits.BRGH = 1;            // Fast Speed Mode 
-    U2BRG = 8;                      // Set Baud Rate to 115200 for port2
+    #else
+    U2MODEbits.BRGH = 0;            // Normal Mode 
+    #endif
+    U2BRG = BRGVAL;                      // Set Baud Rate to 115200 for port2
     ANSBbits.ANSB1 = 0;             // RX pin is shared with AN2 = RB0. We must set as digital to make it work.
+    
     U2STAbits.UTXISEL0 = 0;         // Interrupt when the last character is shifted out 
     U2STAbits.UTXISEL1 = 1;         // of the Transmit Shift Register; all transmit operation completed  (01))
     
@@ -260,7 +217,7 @@ void init_uart(void){
     
     IEC1bits.U2RXIE = 1;            // Enable UART RX interrupt
     U2MODEbits.UARTEN = 1;          // Enable UART
-    U2STAbits.UTXEN = 1;            // Enable UART TX, Transmit is enabled; UxTX pin is controlled by UARTx
+    U2STAbits.UTXEN =1;            // Enable UART TX, Transmit is enabled; UxTX pin is controlled by UARTx
 }
    
 void send_uart (unsigned char msg){
@@ -345,36 +302,16 @@ void init_ADC(void){
 //    AD1CON2bits.ALTS = 1;           //Uses MUX A input multiplexer settings for the first sample, then alternates between MUX B and MUX A input multiplexer settings for all subsequent samples
     
     // Select the pins we want to sequentially scan, the ANx ports on the schematics
-    AD1CSSLbits.CSSL1 = 0; //Corresponding analog channel not selected for input scan
-    AD1CSSLbits.CSSL2 = 0; //Corresponding analog channel not selected for input scan
-    AD1CSSLbits.CSSL3 = 0; //Corresponding analog channel not selected for input scan
-    AD1CSSLbits.CSSL4 = 0; //Corresponding analog channel not selected for input scan
-    AD1CSSLbits.CSSL6 = 0; //Corresponding analog channel not selected for input scan
-    AD1CSSLbits.CSSL7 = 0; //Corresponding analog channel not selected for input scan
-    AD1CSSLbits.CSSL8 = 0; //Corresponding analog channel not selected for input scan
-    AD1CSSLbits.CSSL10 = 0; //Corresponding analog channel not selected for input scan
-    AD1CSSLbits.CSSL11 = 0; //Corresponding analog channel not selected for input scan
-    AD1CSSLbits.CSSL12 = 0; //Corresponding analog channel not selected for input scan
-    AD1CSSLbits.CSSL0 = 0; //Corresponding analog channel not selected for input scan--> NOT USED WE HAVE ONLY 2 PVDF SENSORS
-    AD1CSSLbits.CSSL13 = 0; //Corresponding analog channel selected for input scan--> NOT USED WE HAVE ONLY 2 PVDF SENSORS
-    AD1CSSLbits.CSSL14 = 0; //Corresponding analog channel selected for input scan--> NOT USED WE HAVE ONLY 2 PVDF SENSORS
-    AD1CSSLbits.CSSL15 = 0; //Corresponding analog channel selected for input scan
-    AD1CSSLbits.CSSL9 = 0; //Corresponding analog channel selected for input scan
-
-   
-    // Configure input channels MUXA: CH0+ input is AN0, CH0- input is Vr- (AVss)
-   // AD1CHSbits.CH0SA = 0b1001; // AN9 Channel 0 Positive Input Select for MUX A Multiplexer Setting bits
-   // AD1CHSbits.CH0NA = 0;      // Channel 0 negative input is Vr-
-//    AD1CHSbits.CH0SB = 0b1111; // AN15 Channel 0 Positive Input Select for MUX B Multiplexer Setting bits
-//    AD1CHSbits.CH0NB = 0;      // Channel 0 negative input is Vr-
+    AD1CSSL = 0; // all ingroned we set it in function configure_sequence_MUXA
     
-    //Select the appropriate sample/conversion sequence (AD1CON1<7:5> and AD1CON3<12:8>).
+        //Select the appropriate sample/conversion sequence (AD1CON1<7:5> and AD1CON3<12:8>).
     AD1CON3bits.ADRC = 0;           // Clock derived from system clock
     AD1CON3bits.SAMC = 0b01100;     // 12 TAD --> 48us, don't know if this is enough since there is also the acquisition time which can be up to 20us
     
     //Select the analog conversion clock to match the desired data rate with the processor
-    AD1CON3bits.ADCS = 0b00000000;   //A/D Conversion Clock Select bits: Fcy=250KHz Tcy=4us -> TAD at least 75 ns this is the converson time per bit
-    // TAD = Tcy*(ADCS+1); --> TAD = Tcy = 4us
+    AD1CON3bits.ADCS = 1;   //A/D Conversion Clock Select bits:
+    // Fcy=16MHz Tcy=62.5 ns -> TAD at least 75 ns this is the converson time per bit
+    // TAD = Tcy*(ADCS+1); --> TAD = 2*Tcy = 120ns > 75 ns
    
     // Interrupts control
     IFS0bits.AD1IF = 0;
