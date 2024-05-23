@@ -1,4 +1,3 @@
-#include <xc.h> // include processor files - each processor file is guarded.
 #ifndef SETUP_H
 #define	SETUP_H
 
@@ -21,6 +20,8 @@
 #else
 #define BRGVAL (FCY/(BAUDRATE*16))-1 // datasheet pg 150
 #endif
+
+#include <xc.h> // include processor files - each processor file is guarded.
 
 #define BIT0  0b0000000000000001
 #define BIT1  0b0000000000000010

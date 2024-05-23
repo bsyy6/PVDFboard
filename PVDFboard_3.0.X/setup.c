@@ -88,8 +88,9 @@ void tmr1_init(){ // 16 bit Timer
     T1CONbits.TCKPS = 0b00;         // Prescale 1:1
     T1CONbits.TCS = 0;              // Internal Clock
 
-    TMR1 = 0x0000;                  // Clear timer register
-    PR1 = 16000;                      // CLK = FOSC*PLL/2 = 250 KHz   
+    TMR1 = 0;                       // Clear timer register
+    PR1  = 16000;                   // CLK = FOSC*PLL/2 = 16 MHz
+                                    // 16 MHz / 16000 = 1 kHz timer
     
     IPC0bits.T1IP = 3;               // priority 3
     
@@ -181,12 +182,17 @@ void init_uart(void){
     IPC2bits.U1RXIP = 5;            // priority level.
     IPC3bits.U1TXIP = 2;            // priority level.
     
-    IEC0bits.U1TXIE = 0;            // disable UART TX interrupt
     IFS0bits.U1RXIF = 0;
+    IFS0bits.U1TXIF = 0;            // disable UART TX interrupt
+
     IEC0bits.U1RXIE = 1;            // Enable UART RX interrupt
-    U1MODEbits.UARTEN = 1;          // Enable UART
+    IEC0bits.U1TXIE = 0;            // 
+    
     U1STAbits.UTXEN = 1;            // Enable UART TX, Transmit is enabled; 
                                     // UxTX pin is controlled by UARTx
+    
+    U1MODEbits.UARTEN = 1;          // Enable UART
+
 
 
     //Communication on serial port 2 (bluetooth)  
@@ -200,7 +206,7 @@ void init_uart(void){
     #else
     U2MODEbits.BRGH = 0;            // Normal Mode 
     #endif
-    U2BRG = BRGVAL;                      // Set Baud Rate to 115200 for port2
+    U2BRG = BRGVAL;                 // Set Baud Rate to 115200 for port2
     ANSBbits.ANSB1 = 0;             // RX pin is shared with AN2 = RB0. We must set as digital to make it work.
     
     U2STAbits.UTXISEL0 = 0;         // Interrupt when the last character is shifted out 
@@ -212,12 +218,14 @@ void init_uart(void){
     IPC7bits.U2RXIP  = 7;           // recieve interrupt 7 (0b111) highest priority   
     IPC7bits.U2TXIP  = 6;           // send interrupt (6)  high priority
     
-    IEC1bits.U2TXIE = 0;            // disable UART TX interrupt
     IFS1bits.U2RXIF = 0;            // reset the flag
-    
+   IEC1bits.U2TXIE = 0;            // disable UART TX interrupt
+
     IEC1bits.U2RXIE = 1;            // Enable UART RX interrupt
+    U2STAbits.UTXEN = 1;            // Enable UART TX, Transmit is enabled; UxTX pin is controlled by UARTx
+    
     U2MODEbits.UARTEN = 1;          // Enable UART
-    U2STAbits.UTXEN =1;            // Enable UART TX, Transmit is enabled; UxTX pin is controlled by UARTx
+
 }
    
 void send_uart (unsigned char msg){
@@ -276,82 +284,87 @@ void Save_EEPROM(int data, int address){
 ////////////////////////////////////////////////////////////////////////////////
 
 void init_ADC(void){
-    PMD1bits.ADC1MD = 0;        // Enables clock and all registers associated with ADC.
-    AD1CON1bits.ADON = 0;       // Turn off.
-    AD1CON1bits.ADSIDL = 0;     // Continue module operation in Idle mode
-    AD1CON1bits.FORM = 00;      // Integer (0000 00dd dddd dddd) 0 - 1023
-    AD1CON1bits.SSRC = 0b111;   // Internal counter ends sampling and starts conversion (auto-convert) - Trigger source
-    AD1CON1bits.ASAM = 0;       // Sampling begins immediately after last conversion completes; SAMP bit is automatically set
-    AD1CON1bits.SAMP = 0;       // A/D sample/hold amplifiers are holding,  manual command to start the sampling 
-    //AD1CON1bits.DONE = 0;       //A/D conversion is not done or has not started (READ ONLY)
-            
-    //PVDF1OUT & PVDF2OUT    
-    ANSAbits.ANSA0 = 1;         // Enable RA0 to use as analog input
-    TRISAbits.TRISA0 = 1;       // RA0 as input
     
-    ANSAbits.ANSA2 = 1;         // Enable RA2 to use as analog input
-    TRISAbits.TRISA2 = 1;       // RA2 as input
+    PMD1bits.ADC1MD = 0;        // 0: Power-on
     
-    //Select the voltage reference source
-    AD1CON2bits.VCFG =0b000;        // Configure A/D voltage reference Vr+ and Vr- from AVdd and AVss (VCFG<2:0>=000),
-    AD1CON2bits.CSCNA = 1;          // MUXA Scans input 
-    //AD1CON2bits.BUFS = 0;        // buffer status, only valid when ADC1BUF is functioning as two buffers (BUFM = 1).
-    AD1CON2bits.SMPI = 0b0001;      //Interrupt rate: Interrupts at the completion of conversion for each 2nd sample/convert sequence
-    //AD1CON2bits.BUFM = 0;           //Buffer configured as one 16-word buffer (ADC1BUF0 to ADC1BUFF) 
-    AD1CON2bits.ALTS = 0;           //Always uses MUX A input multiplexer settings
-//    AD1CON2bits.ALTS = 1;           //Uses MUX A input multiplexer settings for the first sample, then alternates between MUX B and MUX A input multiplexer settings for all subsequent samples
+    // [0] general
+    AD1CON1bits.ADON = 0;       // 0: Turn off.
+    AD1CON1bits.ADSIDL = 0;     // 0: module works in Idle mode
+    AD1CON1bits.FORM = 0;       // 0: result in unsigned Integer (0 - 1023)
+    AD1CON1bits.SSRC = 0b111;   // 0: auto-start conversion after SAMC.
+    AD1CON1bits.ASAM = 0;       // 1: SAMP bit is auto-set.
     
-    // Select the pins we want to sequentially scan, the ANx ports on the schematics
-    AD1CSSL = 0; // all ingroned we set it in function configure_sequence_MUXA
-    
-        //Select the appropriate sample/conversion sequence (AD1CON1<7:5> and AD1CON3<12:8>).
-    AD1CON3bits.ADRC = 0;           // Clock derived from system clock
-    AD1CON3bits.SAMC = 0b01100;     // 12 TAD --> 48us, don't know if this is enough since there is also the acquisition time which can be up to 20us
-    
-    //Select the analog conversion clock to match the desired data rate with the processor
-    AD1CON3bits.ADCS = 1;   //A/D Conversion Clock Select bits:
-    // Fcy=16MHz Tcy=62.5 ns -> TAD at least 75 ns this is the converson time per bit
-    // TAD = Tcy*(ADCS+1); --> TAD = 2*Tcy = 120ns > 75 ns
+    // [1] Voltage and channels
+    AD1CON2bits.VCFG = 0;       // 0: Voltage refrence Vr+: VDD - Vr-: VSS
+    AD1CON2bits.CSCNA = 1;      // 1: scan MUXA channels (set later in AD1CSSLbits)  
+    AD1CON2bits.SMPI = 1;       // 1: set interrupt every 2nd sample conversion.
+    AD1CON2bits.ALTS = 0;       // 0: use only MUXA.
    
+    // Before starting, Hi, this is Waleed. nice to meet you.
+    // The instruction cycle time:
+    // In our case after activating PLL(x4) and no scalers.
+    // Fcy = Fosc*4/2 = 16 MHz -> Tcy = 1/16 usec = 62.5 nsec.
+    
+    // ADC conversion has two stages : 1 sampling -> 2 conversion.
+    // 1) Sampling time:
+    // how much time it charges the hold capacitor.
+    // to capture the whole range make it  > 750 nsec. remember this we will use
+    // it later to set the SAMC bit.
+    // which is enough to capture a full range change from (0V->3.3V).
+    // this is set in SAMC bit. SAMC bit is read with number of Tad.
+    
+    // 2) Conversion time:
+    // The time to required to read what was charged in step 1.
+    // This is done with a clock that has a period of Tad.
+    // make sure Tad is >75 nsec.
+    // This is set using ADCS bit.
+    // TAD = Tcy*(ADCS+1); --> TAD = 2*Tcy = 125ns > 75 ns
+    // so ADCS = 1.
+    
+    // now we have the Tad value we can set the SAMC bit using this Tad value
+    // SAMC = 7*Tad = 875 nsec > 750 nsec.
+    
+    AD1CON3bits.ADRC = 0;   // 0: Use system clock.
+    AD1CON3bits.SAMC = 10;   // 10: 10 TAD 
+    AD1CON3bits.ADCS = 1;   // 1: set the Tad, where Tad = Tcy*(ADCS+1).
+    
+    // [2] set pins analog and input 
+    ANSAbits.ANSA0 = 1;     // AN0 RA0 
+    TRISAbits.TRISA0 = 1;   // AN0 RA0
+     
+    ANSAbits.ANSA2 = 1;     // AN13 RA2 
+    TRISAbits.TRISA2 = 1;   // AN13 RA2 
+    
+    // [3] choose what channels to be scanned with MUXA
+    AD1CHSbits.CH0NA = 0;   // 0: ground is Vr-.
+    AD1CSSLbits.CSSL0 = 1;  // 1: AN0
+    AD1CSSLbits.CSSL13 = 1; // 1: AN13 
+    
+    
+    AD1CON1bits.ADON = 1; // turn ADC ON
+    
     // Interrupts control
     IFS0bits.AD1IF = 0;
-    // set ADC priority, default priority is 4, check if this is the problem of reading input messages (also uart receiver has priority = 4)
-    //IPC3bits.AD1IP0 = 1; //PRIORITY = 3
-    //IPC3bits.AD1IP1 = 1; //PRIORITY = 3
-    //IPC3bits.AD1IP2 = 0; //PRIORITY = 3
-    IEC0bits.AD1IE = 0;
-    //AD1CON1bits.ADON = 0;
-//    ADC_FLAG = 0;                  // CLEAR flag Interrupt
-//    ADC_INT_ENABLE = 0;            // disabled interrupt
-//    ADC_ENABLE = 0;                // ADC off     
-    //AD1CON1bits.ADON = 1; // turn ADC ON
+    IPC3bits.AD1IP = 3;     // Priority = 3
+    IEC0bits.AD1IE = 1;
+    
+    // current configuration:
+    // ASAM = 0, CSCNA = 1, SMPI = 1, ALTS = 0, ADRC = 0
+    // SAMC = 7, CSSL0 = 1, CSSL13 = 1.
+    // [1] user sets the SAMP bit = 1.
+    // [2] ADC starts sampling MUXA in sequence.
+    // [ ] starting with AN0.
+    // [2] starts converting after 7 Tad.
+    // [ ] the results are stored in ADC1BUF0
+    // [3] ADC starts with the AN13.
+    // [4] starts converting after 7 Tad.
+    // [5] conversion is done. 
+    // [ ] the results are stored in ADC1BUF1
+    // [6] interrupt flag is raised.
+    // [7] no sampling is done until the next SAMP bit set.
+    
+    
 }
-
-
-//
-//To perform an A/D conversion:
-//1. Configure the A/D module:
-//a) Configure port pins as analog inputs and/
-//or select band gap reference inputs
-//(ANSA<3:0>, ANSB<15:12,4:0> and
-//ANCFG<0>).
-//b) Select the voltage reference source to
-//match the expected range on analog inputs
-//(AD1CON2<15:13>).
-//c) Select the analog conversion clock to match
-//the desired data rate with the processor
-//clock (AD1CON3<7:0>).
-//d) Select the appropriate sample/conversion
-//sequence (AD1CON1<7:5> and
-//AD1CON3<12:8>).
-//e) Select how conversion results are
-//presented in the buffer (AD1CON1<9:8>).
-//f) Select interrupt rate (AD1CON2<5:2>).
-//g) Turn on A/D module (AD1CON1<15>).
-//2. Configure A/D interrupt (if required):
-//a) Clear the AD1IF bit.
-//b) Select A/D interrupt priority.
-
 
 
 

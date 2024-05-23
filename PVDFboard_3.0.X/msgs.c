@@ -133,7 +133,7 @@ void processMsgBluetooth(volatile Buffer *raw_buffer, uint8_t secondStartFlag){
     } State_BT; 
 
     const uint8_t firstStartFlag = 0x02;
-    const uint8_t MAX_MSG_SIZE = 15;
+    const uint8_t MAX_MSG_SIZE = 70;
     const uint8_t MIN_MSG_SIZE = 1;
 
 
