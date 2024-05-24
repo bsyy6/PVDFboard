@@ -182,17 +182,12 @@ void init_uart(void){
     IPC2bits.U1RXIP = 5;            // priority level.
     IPC3bits.U1TXIP = 2;            // priority level.
     
+    IEC0bits.U1TXIE = 0;            // disable UART TX interrupt
     IFS0bits.U1RXIF = 0;
-    IFS0bits.U1TXIF = 0;            // disable UART TX interrupt
-
     IEC0bits.U1RXIE = 1;            // Enable UART RX interrupt
-    IEC0bits.U1TXIE = 0;            // 
-    
+    U1MODEbits.UARTEN = 1;          // Enable UART
     U1STAbits.UTXEN = 1;            // Enable UART TX, Transmit is enabled; 
                                     // UxTX pin is controlled by UARTx
-    
-    U1MODEbits.UARTEN = 1;          // Enable UART
-
 
 
     //Communication on serial port 2 (bluetooth)  
@@ -206,7 +201,7 @@ void init_uart(void){
     #else
     U2MODEbits.BRGH = 0;            // Normal Mode 
     #endif
-    U2BRG = BRGVAL;                 // Set Baud Rate to 115200 for port2
+    U2BRG = BRGVAL;                      // Set Baud Rate to 115200 for port2
     ANSBbits.ANSB1 = 0;             // RX pin is shared with AN2 = RB0. We must set as digital to make it work.
     
     U2STAbits.UTXISEL0 = 0;         // Interrupt when the last character is shifted out 
@@ -218,13 +213,12 @@ void init_uart(void){
     IPC7bits.U2RXIP  = 7;           // recieve interrupt 7 (0b111) highest priority   
     IPC7bits.U2TXIP  = 6;           // send interrupt (6)  high priority
     
+    IEC1bits.U2TXIE = 0;            // disable UART TX interrupt
     IFS1bits.U2RXIF = 0;            // reset the flag
-   IEC1bits.U2TXIE = 0;            // disable UART TX interrupt
-
-    IEC1bits.U2RXIE = 1;            // Enable UART RX interrupt
-    U2STAbits.UTXEN = 1;            // Enable UART TX, Transmit is enabled; UxTX pin is controlled by UARTx
     
+    IEC1bits.U2RXIE = 1;            // Enable UART RX interrupt
     U2MODEbits.UARTEN = 1;          // Enable UART
+    U2STAbits.UTXEN =1;            // Enable UART TX, Transmit is enabled; UxTX pin is controlled by UARTx
 
 }
    

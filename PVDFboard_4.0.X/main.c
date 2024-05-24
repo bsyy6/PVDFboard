@@ -198,7 +198,7 @@ unsigned int LP_filter(unsigned int x0);
 void configure_sequence_MUXA(char s1, char s2);
 void ManageSerialTX(void);
 void ManageSerialRX(void);
-void ReadCmd(char* msgHolder);
+void ReadCmd(uint8_t* msgHolder);
 void init_buffer(void);
 void sr_LED_primary(char led, bool state);
 void set_LED(char led);
@@ -215,7 +215,7 @@ unsigned char  colorCounter = 0;
 unsigned int colorTime = 900; 
 volatile bool LED_switched = false;
 volatile bool blockLED = false;
-
+volatile bool LED_R_B = true;
 //Timer1 interrupt
 void __attribute__((__interrupt__, no_auto_psv)) _T1Interrupt(void){ 
     //@1KHz -> 1 msec
@@ -224,6 +224,13 @@ void __attribute__((__interrupt__, no_auto_psv)) _T1Interrupt(void){
     T1counter++;
     if(T1counter >= 1000){ 
         T1counter = 0;
+        if(LED_R_B){
+            set_LED('R');
+            LED_R_B = false;
+        }else{
+            set_LED('B');
+            LED_R_B = true;
+        }
     }
     
     LED_switched = false;
@@ -250,8 +257,7 @@ void __attribute__((__interrupt__, no_auto_psv)) _T1Interrupt(void){
     }
     
     AD1CON1bits.SAMP = 1;
-	U1TXREG = 0xFA;
-    
+	
     IFS0bits.T1IF = 0; 
    
 }
@@ -439,7 +445,7 @@ void ManageSerialTX(void){
 //          between streaming derivative or analog signal.                    //
 //////////////////////////////////////////////////////////////////////////////// 
 
-void ReadCmd(char *msgHolder){
+void ReadCmd(uint8_t *msgHolder){
     uint8_t shift;
     if(msgHolder[0] == 0xA1){
        shift = 3; // the first two are start flags 
@@ -783,15 +789,6 @@ void set_LED(char led)
 int main(int argc, char** argv){
     // Initialization of micro and peripheral      
     init_mcu();
-    tmr1_init();
-    
-    init_BT();
-    DEBUG_PIN = 0;
-    
-    set_LED('R');
-    init_ADC();
-    
-    
     // uart 1 buffers
     b_inBuffer1 = initBuffer(inBuffer1,sizeof(inBuffer1)/sizeof(inBuffer1[0]));
     b_outBuffer1 = initBuffer(outBuffer1,sizeof(outBuffer1)/sizeof(outBuffer1[0]));
@@ -827,7 +824,12 @@ int main(int argc, char** argv){
         ThresholdDerR[i] = __builtin_tblrdl(tbloffset_thrderR+eeprom_pos);
     }
    
+    tmr1_init();
     
+    init_BT();
+    DEBUG_PIN = 0;
+    
+    init_ADC();
     
     init_uart();
     init_buffer(); // sets the default values in output message
@@ -852,10 +854,8 @@ int main(int argc, char** argv){
     }else{
         //printf("not connected\n");
     }
-    init_buffer2();
-    while (1){
-        send_uart2(0xA1);
     
+    while (1){
         copyBuffer(w);
         
 
@@ -892,35 +892,35 @@ int main(int argc, char** argv){
         */
         // [2] echo2To1
         // echo from 2 to 1
-        
+        /*
         while(!b_inBuffer2.isEmpty){
             //set_LED('R');
             deq(&msgData2,&b_inBuffer2); // copy from 2
             enq(&msgData2,&b_outBuffer1); // put in 1
         }
-       
+        */
         //--- end of Debugging tools
         
         // check if valid messages are recieved 
         processMsg(&b_inBuffer1);
-        //processMsgBluetooth(&b_inBuffer2, 0x84);
+        processMsgBluetooth(&b_inBuffer2, 0x84);
         
         if(b_inBuffer1.msgCount >= 1){
             getMsg(&b_inBuffer1, msgData1,&msgDataSize1);
-            ReadCmd((char*)msgData1);
+            ReadCmd(msgData1);
         }
         
         if(b_inBuffer2.msgCount >= 1){
             getMsg(&b_inBuffer2, msgData2,&msgDataSize2);
-            ReadCmd((char*)msgData2);
+            ReadCmd(msgData2);
         }
         
         
         if (SendData==1 && b_outBuffer1.isEmpty ){
             // every 100Hz
             SendData=0;
-            //if(StartRX) ManageSerialTX();
-            //if(bt_on)   ManageSerialTX2();
+            if(StartRX) ManageSerialTX();
+            if(bt_on)   ManageSerialTX2();
         }
         
         // check if there are bytes to send.
@@ -936,6 +936,7 @@ int main(int argc, char** argv){
         
 
         // this is non-blocking LED blink.
+        /*
         if ((circleClrs > 0) && !(T1counter % colorTime) && !LED_switched && !blockLED){
             // little dance
             set_LED(colors[colorCounter++]);
@@ -946,7 +947,7 @@ int main(int argc, char** argv){
             }
             LED_switched = true;
         }
-        
+        */
     }
 	return (EXIT_SUCCESS);
 }
