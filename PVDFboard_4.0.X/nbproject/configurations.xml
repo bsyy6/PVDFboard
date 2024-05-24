@@ -7,7 +7,6 @@
       <itemPath>buffers.h</itemPath>
       <itemPath>msgs.h</itemPath>
       <itemPath>setup.h</itemPath>
-      <itemPath>bluetooth.h</itemPath>
     </logicalFolder>
     <logicalFolder name="ExternalFiles"
                    displayName="Important Files"
@@ -26,7 +25,6 @@
       <itemPath>main.c</itemPath>
       <itemPath>setup.c</itemPath>
       <itemPath>config_bits.c</itemPath>
-      <itemPath>bluetooth.c</itemPath>
     </logicalFolder>
   </logicalFolder>
   <projectmakefile>Makefile</projectmakefile>
