@@ -204,7 +204,7 @@ void sr_LED_primary(char led, bool state);
 void set_LED(char led);
 
 void init_BT();
-void connect_BT(uint8_t *BTMAC);
+bool connect_BT(uint8_t *BTMAC);
 void whoAmI(uint8_t *BTMAC);
 void ManageSerialTX2(void);
 
@@ -846,14 +846,9 @@ int main(int argc, char** argv){
     
     init_BT();
     __delay_ms(100); 
-    //whoAmI(BTMAC_pcb);
+    whoAmI(BTMAC_pcb);
     __delay_ms(250);
-    //connect_BT(BTMAC_computer);
-    if(bt_on){
-        //printf("connected\n");
-    }else{
-        //printf("not connected\n");
-    }
+    bt_on = connect_BT(BTMAC_computer);
     
     while (1){
         copyBuffer(w);
@@ -961,7 +956,7 @@ void init_BT(){
     BT_in = 1;
 }
 
-void connect_BT(uint8_t *BTMAC){
+bool connect_BT(uint8_t *BTMAC){
     
     outBuffer2[0]=0x02;
     outBuffer2[1]=0x06;
@@ -979,18 +974,18 @@ void connect_BT(uint8_t *BTMAC){
       send_uart2(outBuffer2[i]);
     }
     
-//    __delay_ms(100);
-//    while(b_inBuffer2.isEmpty){
-//       __delay_ms(100);
-//    }
-//    while(!b_inBuffer2.isEmpty){
-//        processMsgBluetooth(&b_inBuffer2, 0x86);
-//        getMsg(&b_inBuffer2, msgData2,&msgDataSize2);
-//        if(msgData2[2] == 7 && !memcmp(&msgData2[5],BTMAC,6)){ // success
-//            bt_on = 1;
-//            break;
-//        }
-//    }
+    __delay_ms(100);
+    while(b_inBuffer2.isEmpty){
+       __delay_ms(100);
+    }
+    while(!b_inBuffer2.isEmpty){
+        processMsgBluetooth(&b_inBuffer2, 0x86);
+        getMsg(&b_inBuffer2, msgData2,&msgDataSize2);
+        if(msgData2[2] == 7 && !memcmp(&msgData2[5],BTMAC,6)){ // success
+            return(1);
+        }
+    }
+    return(0);
 }
 
 void whoAmI(uint8_t *BTMAC){
@@ -999,13 +994,32 @@ void whoAmI(uint8_t *BTMAC){
       send_uart2(CMD_GET_REQ[i]);
     }
      __delay_ms(100);
-//    processMsgBluetooth(&b_inBuffer2, 0x50);
-//    getMsg(&b_inBuffer2, msgData2,&msgDataSize2);
-//    if(msgData2[1] == 0x50 && msgData2[2] == 0x07){// got a BTMAC response
-//        for(int i = 0; i < 5;i++){
-//            BTMAC[i] = msgData2[i+5];
-//        }
-//    }
+    processMsgBluetooth(&b_inBuffer2, 0x50);
+    getMsg(&b_inBuffer2, msgData2,&msgDataSize2);
+    if(msgData2[1] == 0x50 && msgData2[2] == 0x07){// got a BTMAC response
+        for(int i = 0; i < 5;i++){
+            BTMAC[i] = msgData2[i+5];
+        }
+    }
+}
+
+bool setJustWorks(void){
+    const uint8_t CMD_SET_REQ_JW[7] = {0x02, 0x11, 0x02, 0x00, 0x0C, 0x02, 0x1F};
+    for (int i = 0; i<7; i++) {
+      send_uart2(CMD_SET_REQ_JW[i]);
+    }
+    __delay_ms(10);
+    while(b_inBuffer2.isEmpty){
+       __delay_ms(10);
+    }
+    while(!b_inBuffer2.isEmpty){
+        processMsgBluetooth(&b_inBuffer2, 0x51);
+        getMsg(&b_inBuffer2, msgData2,&msgDataSize2);
+        if(msgData2[1] == 0x51 && msgData2[2] == 0x01){// got a BTMAC response
+            return(true);
+        }
+    }
+    return(false);
 }
 
 void init_buffer2(void) { 
