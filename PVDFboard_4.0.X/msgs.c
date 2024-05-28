@@ -120,7 +120,7 @@ void processMsgBluetooth(volatile Buffer *raw_buffer, uint8_t secondStartFlag){
     // you can check if messages are available by checking buffer->msgCount.
     
     
-    // message structure => [firstStartFlag,seocondStartFlag,Size,{DATA[]},firstEndFlag,firstStartFlag]
+    // message structure => [firstStartFlag,seocondStartFlag,Size,{DATA[]},firstEndFlag,secondStartFlag]
     
     typedef enum {
         START1, // waiting for first flag

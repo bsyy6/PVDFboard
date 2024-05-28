@@ -36,6 +36,7 @@
 #include <libpic30.h>
 #include <stdbool.h> 
 #include <stdint.h>
+#include <limits.h>
 
 // DEFINE PARAMETERS
 #define wLenght        10   // lunghezza del buffer di acquisizione dell'adc, acquisendo 1 campione ogni 1 ms, sar� pieno dopo 10 ms visto che legge un campione per sensore 
@@ -175,7 +176,18 @@ uint8_t BTMAC_pcb[6] = {0x85, 0x98, 0x32,0xDA, 0x18 ,0x00};
 uint8_t tempByte;
 
 unsigned char byteRead[20] = {};
-bool bt_on = false;
+
+typedef enum {
+    BT_POWER_OFF,     // 0
+    BT_POWER_ON,      // 1
+    BT_CONNECTED,     // 2
+    BT_NOT_CONNECTED,  // 3
+    BT_OK,
+    BT_NOT_OK,
+} bt_states;
+
+bt_states bt_state = BT_POWER_OFF; 
+uint8_t delay_attempts = 0;
 /***********/
 
 unsigned char checkCOM = 0;
@@ -203,12 +215,14 @@ void init_buffer(void);
 void sr_LED_primary(char led, bool state);
 void set_LED(char led);
 
-void init_BT();
-bool connect_BT(uint8_t *BTMAC);
-void whoAmI(uint8_t *BTMAC);
+bt_states init_BT();
+bt_states connect_BT(uint8_t *BTMAC); // returns true if connected successfully
+bt_states setJustWorks(void);        //  returns true if connected successfully
+bt_states whoAmI(uint8_t *BTMAC);    // 
 void ManageSerialTX2(void);
 
 volatile unsigned int T1counter = 0;
+const unsigned int T1counter_max = UINT_MAX; // 0xFFFF
 unsigned char circleClrs = 0;
 const char colors[] = {'R', 'G', 'B', 'Y', 'C', 'M', 'W','0'};
 unsigned char  colorCounter = 0;
@@ -216,6 +230,12 @@ unsigned int colorTime = 900;
 volatile bool LED_switched = false;
 volatile bool blockLED = false;
 volatile bool LED_R_B = true;
+
+unsigned int addmsec (unsigned int msec){
+    // returns how much will bel the value of T1counter after msecs
+    // used to detect and issue timeout. 
+    return (T1counter + msec) % (T1counter_max) + 1;
+}
 //Timer1 interrupt
 void __attribute__((__interrupt__, no_auto_psv)) _T1Interrupt(void){ 
     //@1KHz -> 1 msec
@@ -826,7 +846,8 @@ int main(int argc, char** argv){
    
     tmr1_init();
     
-    init_BT();
+    
+    
     DEBUG_PIN = 0;
     
     init_ADC();
@@ -843,12 +864,15 @@ int main(int argc, char** argv){
     
     circleClrs = 1;
     colorTime = 100;
-    
-    init_BT();
-    __delay_ms(100); 
-    whoAmI(BTMAC_pcb);
-    __delay_ms(250);
-    bt_on = connect_BT(BTMAC_computer);
+    send_uart(bt_state);
+    bt_state = init_BT();
+    send_uart(bt_state);
+    if(bt_state == BT_POWER_ON){
+        bt_state = whoAmI(BTMAC_pcb);
+        send_uart(bt_state);
+        bt_state = connect_BT(BTMAC_computer);
+        send_uart(bt_state);
+    }
     
     while (1){
         copyBuffer(w);
@@ -915,7 +939,7 @@ int main(int argc, char** argv){
             // every 100Hz
             SendData=0;
             if(StartRX) ManageSerialTX();
-            if(bt_on)   ManageSerialTX2();
+            if(bt_state == BT_CONNECTED)   ManageSerialTX2();
         }
         
         // check if there are bytes to send.
@@ -948,15 +972,33 @@ int main(int argc, char** argv){
 }
 
 
-void init_BT(){
+bt_states init_BT(){
+    unsigned char msgsAfter =  b_inBuffer2.msgCount + 1;
+
     BT_RESET = 0;
     __delay_ms(10); //BT user manual (pag. 33)
-    BT_RESET = 1;  
-    flag_BT_reset = true;
-    BT_in = 1;
+    BT_RESET = 1;
+    
+    const char expectedResponse[7] = {0x02, 0x41, 0x02, 0x00, 0x01, 0x01, 0x41};
+    
+    unsigned int timeOut = addmsec(100);
+    
+    while(b_inBuffer2.msgCount != msgsAfter || T1counter < timeOut){
+       processMsgBluetooth(&b_inBuffer2, 0x41);
+    }
+    
+    while(b_inBuffer2.msgCount > 0){
+        getMsg(&b_inBuffer2, msgData2,&msgDataSize2);
+        if(!memcmp(msgData2,expectedResponse,msgDataSize2)){ // success
+            return(BT_POWER_ON);
+        }
+    }
+    return(BT_POWER_OFF);
 }
 
-bool connect_BT(uint8_t *BTMAC){
+bt_states connect_BT(uint8_t *BTMAC){
+    
+    unsigned char msgsAfter =  b_inBuffer2.msgCount + 1;
     
     outBuffer2[0]=0x02;
     outBuffer2[1]=0x06;
@@ -974,52 +1016,65 @@ bool connect_BT(uint8_t *BTMAC){
       send_uart2(outBuffer2[i]);
     }
     
-    __delay_ms(100);
-    while(b_inBuffer2.isEmpty){
-       __delay_ms(100);
+    
+    unsigned int timeOut = addmsec(1000);
+    while(b_inBuffer2.msgCount != msgsAfter || T1counter < timeOut){
+       processMsgBluetooth(&b_inBuffer2, 0x86);
     }
-    while(!b_inBuffer2.isEmpty){
-        processMsgBluetooth(&b_inBuffer2, 0x86);
+    
+    while(b_inBuffer2.msgCount>0){ 
         getMsg(&b_inBuffer2, msgData2,&msgDataSize2);
         if(msgData2[2] == 7 && !memcmp(&msgData2[5],BTMAC,6)){ // success
-            return(1);
+            return(BT_CONNECTED);
         }
     }
-    return(0);
+    return(BT_NOT_CONNECTED);
 }
 
-void whoAmI(uint8_t *BTMAC){
-    const uint8_t CMD_GET_REQ[6] = {0x02, 0x10,0x01,0x00,0x04,0x17};
+bt_states whoAmI(uint8_t *BTMAC){
+    unsigned char msgsAfter =  b_inBuffer2.msgCount + 1;
+    
+    const uint8_t CMD_GET_REQ[6] = {0x02,0x10,0x01,0x00,0x04,0x17};
     for (int i = 0; i<6; i++) {
       send_uart2(CMD_GET_REQ[i]);
     }
-     __delay_ms(100);
-    processMsgBluetooth(&b_inBuffer2, 0x50);
-    getMsg(&b_inBuffer2, msgData2,&msgDataSize2);
-    if(msgData2[1] == 0x50 && msgData2[2] == 0x07){// got a BTMAC response
-        for(int i = 0; i < 5;i++){
-            BTMAC[i] = msgData2[i+5];
+    unsigned int timeOut = addmsec(100);
+    
+    while(b_inBuffer2.msgCount != msgsAfter || T1counter < timeOut){
+       processMsgBluetooth(&b_inBuffer2, 0x50);
+    }
+
+    while(b_inBuffer2.msgCount > 0 ){
+        getMsg(&b_inBuffer2, msgData2,&msgDataSize2);
+        if(msgData2[1] == 0x50 && msgData2[2] == 0x07){// got a BTMAC response
+            for(int i = 0; i < 5;i++){
+                BTMAC[i] = msgData2[i+5];
+            }
+            return(BT_OK);
         }
     }
+    return(BT_NOT_OK);
 }
 
-bool setJustWorks(void){
+bt_states setJustWorks(void){
+    unsigned char msgsAfter =  b_inBuffer2.msgCount + 1;
     const uint8_t CMD_SET_REQ_JW[7] = {0x02, 0x11, 0x02, 0x00, 0x0C, 0x02, 0x1F};
     for (int i = 0; i<7; i++) {
       send_uart2(CMD_SET_REQ_JW[i]);
     }
-    __delay_ms(10);
-    while(b_inBuffer2.isEmpty){
-       __delay_ms(10);
+    
+    unsigned int timeOut = addmsec(100);
+    while(b_inBuffer2.msgCount != msgsAfter || T1counter < timeOut){
+       processMsgBluetooth(&b_inBuffer2, 0x51);
     }
-    while(!b_inBuffer2.isEmpty){
-        processMsgBluetooth(&b_inBuffer2, 0x51);
+    
+    while(b_inBuffer2.msgCount>0){ 
         getMsg(&b_inBuffer2, msgData2,&msgDataSize2);
         if(msgData2[1] == 0x51 && msgData2[2] == 0x01){// got a BTMAC response
-            return(true);
+            return(BT_OK);
         }
     }
-    return(false);
+    return(BT_NOT_OK);
 }
 
 void init_buffer2(void) { 
