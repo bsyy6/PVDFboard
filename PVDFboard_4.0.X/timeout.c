@@ -17,11 +17,15 @@ timeOutObj timeOutBegin(uint16_t* currentTimePtr,uint16_t delay, bool* wrapped){
      to.wrapCycle = *wrapped;
     }
     to.currentWrapStatusPtr = wrapped;
-    
+    to.timedOut = false;
     return (to);
 }
 
 bool timeOutCheck(timeOutObj *toPtr){
     // returns true when timeout passed 
-    return !(*toPtr->currentTimePtr < toPtr->ttimeOut  || *toPtr->currentWrapStatusPtr != toPtr->wrapCycle);
+    if(!toPtr->timedOut){
+        // avoids checking an already expired timer.
+        toPtr->timedOut = !(*toPtr->currentTimePtr < toPtr->ttimeOut  || *toPtr->currentWrapStatusPtr != toPtr->wrapCycle);   
+    }
+    return (toPtr->timedOut);
 }

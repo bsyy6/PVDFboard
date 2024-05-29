@@ -10,6 +10,7 @@ typedef struct{
     bool *currentWrapStatusPtr;
     uint16_t ttimeOut;
     bool wrapCycle;
+    bool timedOut;
 } timeOutObj;
 
 timeOutObj timeOutBegin(uint16_t* currentTimePtr,uint16_t delay, bool* wrapped);

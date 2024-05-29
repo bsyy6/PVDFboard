@@ -109,7 +109,7 @@ void processMsg(volatile Buffer *raw_buffer){
     }
 }
 
-void processMsgBluetooth(volatile Buffer *raw_buffer, uint8_t secondStartFlag){
+bool processMsgBluetooth(volatile Buffer *raw_buffer, uint8_t secondStartFlag){
     // Reads through the buffer: if a valid message is found it:
     // [1] freezes its locaiton in the buffer so it is not overwritten.
     // [2] stores the location of the message in the buffer->msgRanges
@@ -119,6 +119,7 @@ void processMsgBluetooth(volatile Buffer *raw_buffer, uint8_t secondStartFlag){
     // it will copy the message to msgOut array and unfreeze the buffer to work as usual.
     // you can check if messages are available by checking buffer->msgCount.
     
+    // returns true if it gets a message.
     
     // message structure => [firstStartFlag,seocondStartFlag,Size,{DATA[]},firstEndFlag,secondStartFlag]
     
@@ -145,10 +146,9 @@ void processMsgBluetooth(volatile Buffer *raw_buffer, uint8_t secondStartFlag){
 
 
     if(raw_buffer->isEmpty){
-        return;
+         return(false);
     }
-    bool foundMsg = false; // Quit checking the buffer upon finding a message. 
-    while(!raw_buffer->isEmpty && !foundMsg){
+    while(!raw_buffer->isEmpty){
         deq(&byte,raw_buffer);
         switch (state){
             case START1:
@@ -196,7 +196,7 @@ void processMsgBluetooth(volatile Buffer *raw_buffer, uint8_t secondStartFlag){
                 if(byte == checkSumFlag){
                     enqMsg(raw_buffer);
                     state = START1;
-                    foundMsg = true;
+                    return(true);
                 }else{
                     state = ERROR;
                 }
@@ -216,6 +216,7 @@ void processMsgBluetooth(volatile Buffer *raw_buffer, uint8_t secondStartFlag){
             state = START1;
         }
     }
+    return(false);
 }
 
 uint8_t calcCS_buffer(volatile Buffer* buffer, uint8_t size){

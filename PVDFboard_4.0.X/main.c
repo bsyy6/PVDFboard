@@ -30,6 +30,7 @@
 #include "xc.h"
 #include "buffers.h"    
 #include "msgs.h"
+#include "timeout.h"
 #include <stdio.h>                           
 #include <math.h> 
 #include <stdlib.h>
@@ -37,6 +38,7 @@
 #include <stdbool.h> 
 #include <stdint.h>
 #include <limits.h>
+
 
 // DEFINE PARAMETERS
 #define wLenght        10   // lunghezza del buffer di acquisizione dell'adc, acquisendo 1 campione ogni 1 ms, sar� pieno dopo 10 ms visto che legge un campione per sensore 
@@ -51,7 +53,7 @@
 // VARIABLES
 
 //bool state = true;
-unsigned char count = 0;                     // Counter for Timer1 (increased every match with PR1), Press acquisition counter
+unsigned int count = 0;                     // Counter for Timer1 (increased every match with PR1), Press acquisition counter
 
 unsigned int PVDFsensor[nSensors] = {0};                          // Raw Data ADC values for all channels
 unsigned int iPVDFFiltered[ADCBufferLength][nSensors]= {{0},{0}}; // Data filtered by the LP filter
@@ -164,7 +166,7 @@ uint8_t msgData2[35];  // extracted msgs go here
 uint8_t msgDataSize2 = 0; // the size of data in msgData
 volatile Buffer b_inBuffer2;
 
-uint8_t outBuffer2[59];
+uint8_t outBuffer2[28];
 volatile Buffer b_outBuffer2;
 
 bool flag_BT_reset = false;
@@ -181,13 +183,15 @@ typedef enum {
     BT_POWER_OFF,     // 0
     BT_POWER_ON,      // 1
     BT_CONNECTED,     // 2
-    BT_NOT_CONNECTED,  // 3
-    BT_OK,
-    BT_NOT_OK,
+    BT_NOT_CONNECTED, // 3
+    BT_OK,            // 4
+    BT_NOT_OK,        // 5
+    BT_TIMEOUT        // 6
 } bt_states;
 
 bt_states bt_state = BT_POWER_OFF; 
 uint8_t delay_attempts = 0;
+timeOutObj timeOut;
 /***********/
 
 unsigned char checkCOM = 0;
@@ -230,18 +234,17 @@ unsigned int colorTime = 900;
 volatile bool LED_switched = false;
 volatile bool blockLED = false;
 volatile bool LED_R_B = true;
+volatile bool wrapped = false;
 
-unsigned int addmsec (unsigned int msec){
-    // returns how much will bel the value of T1counter after msecs
-    // used to detect and issue timeout. 
-    return (T1counter + msec) % (T1counter_max) + 1;
-}
 //Timer1 interrupt
 void __attribute__((__interrupt__, no_auto_psv)) _T1Interrupt(void){ 
     //@1KHz -> 1 msec
     DEBUG_PIN = !DEBUG_PIN;
-    
+    if(T1counter == T1counter_max){
+        wrapped = !wrapped; // flips on each overflow.
+    }
     T1counter++;
+    
     if(T1counter >= 1000){ 
         T1counter = 0;
         if(LED_R_B){
@@ -261,7 +264,7 @@ void __attribute__((__interrupt__, no_auto_psv)) _T1Interrupt(void){
     bluetime++;
     redtime++;
 
-    if (count == 10) //makes it 100Hz 
+    if (count == 3000) //makes it 100Hz 
     {    
         count = 0;
         SendData=1;
@@ -416,6 +419,7 @@ void ManageSerialTX(void){
         outBuffer1[9+aux] = (iPVDFFilteredBuffer[StartDetection][j] & 0x00FF);
     }
     b_outBuffer1.head = 0;
+    b_outBuffer1.tail = 0;
     b_outBuffer1.isEmpty = false;
     b_outBuffer1.isFull  = true;
 }
@@ -853,8 +857,7 @@ int main(int argc, char** argv){
     init_ADC();
     
     init_uart();
-    init_buffer(); // sets the default values in output message
-    init_buffer2();
+    
     
 	// Timer init
 	TMR1_INT_ENABLE = 1;            // Enable interrupt of Timer1
@@ -864,16 +867,14 @@ int main(int argc, char** argv){
     
     circleClrs = 1;
     colorTime = 100;
-    send_uart(bt_state);
+    
     bt_state = init_BT();
-    send_uart(bt_state);
     if(bt_state == BT_POWER_ON){
         bt_state = whoAmI(BTMAC_pcb);
-        send_uart(bt_state);
         bt_state = connect_BT(BTMAC_computer);
-        send_uart(bt_state);
     }
-    
+    init_buffer(); // sets the default values in output message
+    init_buffer2();
     while (1){
         copyBuffer(w);
         
@@ -938,8 +939,8 @@ int main(int argc, char** argv){
         if (SendData==1 && b_outBuffer1.isEmpty ){
             // every 100Hz
             SendData=0;
-            if(StartRX) ManageSerialTX();
-            if(bt_state == BT_CONNECTED)   ManageSerialTX2();
+            if(1) ManageSerialTX(); // StartRX
+            if(1) ManageSerialTX2(); //bt_state == BT_CONNECTED
         }
         
         // check if there are bytes to send.
@@ -973,20 +974,16 @@ int main(int argc, char** argv){
 
 
 bt_states init_BT(){
-    unsigned char msgsAfter =  b_inBuffer2.msgCount + 1;
-
     BT_RESET = 0;
     __delay_ms(10); //BT user manual (pag. 33)
     BT_RESET = 1;
     
     const char expectedResponse[7] = {0x02, 0x41, 0x02, 0x00, 0x01, 0x01, 0x41};
-    
-    unsigned int timeOut = addmsec(100);
-    
-    while(b_inBuffer2.msgCount != msgsAfter || T1counter < timeOut){
-       processMsgBluetooth(&b_inBuffer2, 0x41);
+
+    timeOut = timeOutBegin(&T1counter,500,&wrapped);
+    while(!processMsgBluetooth(&b_inBuffer2, 0x41)){
+       if(timeOutCheck(&timeOut)) break;
     }
-    
     while(b_inBuffer2.msgCount > 0){
         getMsg(&b_inBuffer2, msgData2,&msgDataSize2);
         if(!memcmp(msgData2,expectedResponse,msgDataSize2)){ // success
@@ -997,8 +994,6 @@ bt_states init_BT(){
 }
 
 bt_states connect_BT(uint8_t *BTMAC){
-    
-    unsigned char msgsAfter =  b_inBuffer2.msgCount + 1;
     
     outBuffer2[0]=0x02;
     outBuffer2[1]=0x06;
@@ -1016,34 +1011,34 @@ bt_states connect_BT(uint8_t *BTMAC){
       send_uart2(outBuffer2[i]);
     }
     
-    
-    unsigned int timeOut = addmsec(1000);
-    while(b_inBuffer2.msgCount != msgsAfter || T1counter < timeOut){
-       processMsgBluetooth(&b_inBuffer2, 0x86);
+    timeOut = timeOutBegin(&T1counter,1000,&wrapped);
+    while(!processMsgBluetooth(&b_inBuffer2, 0x86)){
+       if(timeOutCheck(&timeOut)) return(BT_TIMEOUT); 
     }
     
+    timeOut = timeOutBegin(&T1counter,1000,&wrapped);
     while(b_inBuffer2.msgCount>0){ 
         getMsg(&b_inBuffer2, msgData2,&msgDataSize2);
         if(msgData2[2] == 7 && !memcmp(&msgData2[5],BTMAC,6)){ // success
             return(BT_CONNECTED);
         }
+        if(timeOutCheck(&timeOut)) return(BT_TIMEOUT);
     }
+    
     return(BT_NOT_CONNECTED);
 }
 
 bt_states whoAmI(uint8_t *BTMAC){
-    unsigned char msgsAfter =  b_inBuffer2.msgCount + 1;
-    
     const uint8_t CMD_GET_REQ[6] = {0x02,0x10,0x01,0x00,0x04,0x17};
     for (int i = 0; i<6; i++) {
       send_uart2(CMD_GET_REQ[i]);
     }
-    unsigned int timeOut = addmsec(100);
     
-    while(b_inBuffer2.msgCount != msgsAfter || T1counter < timeOut){
-       processMsgBluetooth(&b_inBuffer2, 0x50);
+    timeOut = timeOutBegin(&T1counter,500,&wrapped);
+    while(!processMsgBluetooth(&b_inBuffer2, 0x50)){
+        if(timeOutCheck(&timeOut)) break;
     }
-
+    
     while(b_inBuffer2.msgCount > 0 ){
         getMsg(&b_inBuffer2, msgData2,&msgDataSize2);
         if(msgData2[1] == 0x50 && msgData2[2] == 0x07){// got a BTMAC response
@@ -1052,26 +1047,35 @@ bt_states whoAmI(uint8_t *BTMAC){
             }
             return(BT_OK);
         }
+        if(timeOutCheck(&timeOut)) return(BT_TIMEOUT);
     }
     return(BT_NOT_OK);
 }
 
 bt_states setJustWorks(void){
-    unsigned char msgsAfter =  b_inBuffer2.msgCount + 1;
     const uint8_t CMD_SET_REQ_JW[7] = {0x02, 0x11, 0x02, 0x00, 0x0C, 0x02, 0x1F};
-    for (int i = 0; i<7; i++) {
-      send_uart2(CMD_SET_REQ_JW[i]);
+    for (int i = 0; i<7; i++) {        
+        send_uart2(CMD_SET_REQ_JW[i]);
     }
-    
-    unsigned int timeOut = addmsec(100);
-    while(b_inBuffer2.msgCount != msgsAfter || T1counter < timeOut){
-       processMsgBluetooth(&b_inBuffer2, 0x51);
+
+    timeOut = timeOutBegin(&T1counter,500,&wrapped);
+    while(!processMsgBluetooth(&b_inBuffer2, 0x51)){
+       if(timeOutCheck(&timeOut)) break;
     }
     
     while(b_inBuffer2.msgCount>0){ 
         getMsg(&b_inBuffer2, msgData2,&msgDataSize2);
         if(msgData2[1] == 0x51 && msgData2[2] == 0x01){// got a BTMAC response
-            return(BT_OK);
+            // wait for ready message
+            while(!processMsgBluetooth(&b_inBuffer2, 0x41)){
+                if(timeOutCheck(&timeOut)) break;   
+            }
+            while(b_inBuffer2.msgCount>0){ 
+                getMsg(&b_inBuffer2, msgData2,&msgDataSize2);
+                if(msgData2[1] == 0x51 && msgData2[2] == 0x01){
+                    return(BT_OK);
+                }
+            }
         }
     }
     return(BT_NOT_OK);
@@ -1095,6 +1099,7 @@ void init_buffer2(void) {
     outBuffer2[6] = (ActiveSens*7)+9;
     outBuffer2[7] = MotFlag;
     outBuffer2[8] = StimTime;
+    
     outBuffer2[14] = ThresholdT[0]/4;      // the threshold voltage sensor 1  - read from the EEPROM
     outBuffer2[15] = ThresholdR[0]/4;
     outBuffer2[16] = ThresholdDerT[0]/4;
@@ -1122,6 +1127,7 @@ void ManageSerialTX2(void){
     }
     outBuffer2[27] = calcCS_array(outBuffer2,27);
     b_outBuffer2.head = 0;
+    b_outBuffer2.tail = 0;
     b_outBuffer2.isEmpty = false;
     b_outBuffer2.isFull  = true;
 }
