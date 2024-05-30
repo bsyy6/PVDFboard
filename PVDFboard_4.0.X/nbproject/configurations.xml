@@ -28,7 +28,7 @@
       <itemPath>config_bits.c</itemPath>
       <itemPath>timeout.c</itemPath>
     </logicalFolder>
-    <itemPath>input.txt</itemPath>
+    <itemPath>detection algorithms.txt</itemPath>
   </logicalFolder>
   <sourceRootList>
     <Elem>.</Elem>
@@ -490,6 +490,7 @@
         <property key="preserve-file" value=""/>
         <property key="relaxed-math" value="false"/>
         <property key="save-temps" value="false"/>
+        <appendMe value="-Wunused-variable"/>
       </C30Global>
       <PICkit3PlatformTool>
         <property key="ADC 1" value="true"/>

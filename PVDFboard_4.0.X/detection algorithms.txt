@@ -1,0 +1,74 @@
+// all these were tested inside the LP_filter function.
+
+    
+//  Old LP filter  // not very selective of the noise, too wide
+    
+//    unsigned int a = 0xF5;
+//    unsigned int b = 0x216;
+//    unsigned long aux1 = 0;
+//    unsigned long aux2 = 0;
+//    unsigned long aux3 = 0;
+//    
+//    y0 = ((unsigned long)a * (x0 + x_1))>>10 + ((unsigned long)b * y_1)>>10;
+//    aux1 = ((unsigned long)a * (i_x0 + x_1[p]))>>10 ;
+//    aux2 = ((unsigned long)b * y_1[p])>>10;
+//    aux3 = aux1+aux2;
+//    i_y0 = (unsigned int)aux3;
+//    x_1[p] = i_x0;
+//    y_1[p] = i_y0;
+    
+    
+// Butterworth 4th  // It is too computationally heavy to be implemented in our application
+   
+//    float b = 0.0000079446;    
+//    float a1 = 3.71274;   
+//    float a2 = 5.17878;
+//    float a3 = 3.21604;   
+//    float a4 = 0.75014;
+//    
+//    float aux1 = 0;
+//    float aux2 = 0;
+//    float aux3 = 0;
+//    
+//    aux1 = b*(float)(i_x0+4*x_1[p]+6*x_2[p]+4*x_3[p]+x_4[p]);
+//    aux2 = a2*y_2[p]+a4*y_4[p]-a1*y_1[p]-a3*y_3[p];
+//	  aux3 = aux1-aux2;
+//    i_y0 = (unsigned int)aux3;
+//    x_4[p] = x_3[p];
+//	  y_4[p] = y_3[p];
+//    x_3[p] = x_2[p];
+//	  y_3[p] = y_2[p];
+//    x_2[p] = x_1[p];
+//	  y_2[p] = y_1[p];
+//	  x_1[p] = i_x0;    
+//	  y_1[p] = aux3;
+    
+    
+// Moving average  // works fine, 18 should be the best but too big of a window maybe   
+//    unsigned int i = 0;   
+//    unsigned int average= 0;
+//    //average[p] = average[p] - movavg[p][windowLenght-1];
+//    for (i=0; i<windowLenght-2; i++){
+//        movavg[p][i+1] = movavg[p][i];
+//        average = average + movavg[p][i];
+//    }
+//    average = average + i_x0;
+//    movavg[p][0] = i_x0;
+//    i_y0 = (unsigned int) average/windowLenght;
+    
+
+//      Notch filter 50 Hz
+//    unsigned long b =  878; 
+//    unsigned long b1 = -1671; 
+//    unsigned long b2 =  878; 
+//    unsigned long a1 = -1671;   
+//    unsigned long a2 =  733;
+//    
+//    unsigned long aux1=0;
+//    unsigned long aux2=0;
+//    unsigned long aux3=0;
+//    
+//    aux1 = (b*(unsigned long)(i_x0) + b1*(unsigned long)(x_1[p])+ b2*(unsigned long)(x_2[p]))/1024;
+//    aux2 = (a1 * y_1[p]+a2 * y_2[p])/1024;
+//    aux3 = aux1-aux2;
+//    i_y0 = (unsigned int)aux3;

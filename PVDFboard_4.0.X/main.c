@@ -44,26 +44,7 @@
 #define wLenght        10   // lunghezza del buffer di acquisizione dell'adc, acquisendo 1 campione ogni 1 ms, sar� pieno dopo 10 ms visto che legge un campione per sensore 
 #define windowLenght   10   // Event detection window length, 10ms
 #define nSensors       2    // number of sensors to read
-#define DutyCycleT     0x09   //duty cycle per attivare i motori di uno spike nel caso di evento di tocco 80%
-#define DurationT      0x0F   // durata dello spike per l'evento di tocco 150ms
-#define DutyCycleR     0x9    //duty cycle per attivare i motori di uno spike nel caso di evento di rilascio 80%
-#define DurationR      0x0F   // durata dello spike per l'evento di tocco 150ms
 #define ADCBufferLength 20    // ADC Buffer length, 20ms 
-
-// VARIABLES
-
-//bool state = true;
-unsigned int count = 0;                     // Counter for Timer1 (increased every match with PR1), Press acquisition counter
-
-unsigned int PVDFsensor[nSensors] = {0};                          // Raw Data ADC values for all channels
-unsigned int iPVDFFiltered[ADCBufferLength][nSensors]= {{0},{0}}; // Data filtered by the LP filter
-
-unsigned char w = 0;                                              // write index, shifts acquisition buffer from ADC
-unsigned char p = 0;                                              // channel index, indicates which channel the ADC is scanning
-unsigned char icheckEvent = 0;                                    // flag to check if there is an event, if==0: mette a 1 il flag per la copia e non fa check, if>0 controlla l'evento
-
-int iPVDFFilteredBuffer[ADCBufferLength][nSensors] = {{0},{0}};     
-int derivative[nSensors] = {0};   // derivative global variable
 
 // EEPROM - Global variable located in EEPROM
 
@@ -90,8 +71,7 @@ int tbloffset_SendDer;
 int tbloffset_StimTime;
 int tbloffset_MotFlag;
 
-// Local variables saved from EEPROM
-
+// variables loaded from EEPROM
 bool MotFlag;
 int ActiveSens = 2;
 int StimTime;
@@ -99,44 +79,12 @@ int ThresholdT[nSensors];
 int ThresholdR[nSensors];
 int ThresholdDerT[nSensors];
 int ThresholdDerR[nSensors];
-int iuart = 0;
 
-// DIGITAL LOW PASS FILTER (Uncomment the section related to the filter you want to use)
+// FUNCTIONS AND VARIALBES 
+// timer1
+unsigned int count = 0;                  // Counter for Timer1 (increased every match with PR1), Press acquisition counter
+const unsigned int count_max = 65000;    // 65 seconds
 
-//  Butterworth 2nd order, Fcut = 17 Hz
-unsigned int x_1[nSensors] = {0};           // starting values for filter
-unsigned long y_1[nSensors] = {0};
-unsigned int x_2[nSensors] = {0};           // starting values for filter
-unsigned long y_2[nSensors] = {0};
-
-// Old IIR filter (low pass filter, not restrictive)
-//unsigned int x_1[nSensors] = {0};           // starting values for filter
-//unsigned int y_1[nSensors] = {0};
-
-// Butterworth 4th order 
-//unsigned int x_1[nSensors] = {0};           // starting values for filter
-//float y_1[nSensors] = {0};
-//unsigned int x_2[nSensors] = {0};           // starting values for filter
-//float y_2[nSensors] = {0};
-//unsigned int x_3[nSensors] = {0};           // starting values for filter
-//float y_3[nSensors] = {0};
-//unsigned int x_4[nSensors] = {0};           // starting values for filter
-//float y_4[nSensors] = {0};
-
-// Moving Average
-//unsigned int movavg[nSensors][windowLenght] = {{0},{0}};
-
-
-/// DESC FEEDBACK
-unsigned char iCountEventT[nSensors] = {0};            // Counter for contact events
-unsigned char iCountEventR[nSensors] = {0};            // Counter for release events
-unsigned char ContactEvent[nSensors] = {0};            // Indicates that an application of pressure occurred
-unsigned char ReleaseEvent[nSensors] = {0};            // Indicates that a release of pressure occurred
-unsigned char MotorsActivation[nSensors] = {0};        // Temporary vector of variables to store the information regarding the activation of the 5 sensors to be sent to the motors
-unsigned int tRefractory_max = 140;                    // Time to wait before activating motors after an event detection
-unsigned int tLed_max = 200;                           //
-
-/// COUNTERS FOR TIME INTERRUPTS
 unsigned int CountVibr1 = 0;
 unsigned int CountVibr2 = 0;
 
@@ -145,22 +93,73 @@ unsigned int bluetime = 0;
 unsigned int redtime = 0;
 unsigned int Timer = 0;                             //Variable to send to SW as timestamp (100Hz)
 
-uint8_t byteRecieved =0;
-/***********/
+//ADC
+unsigned char w = 0;            // write index. 
+unsigned char p = 0;            // channel index.
+unsigned char icheckEvent = 0;  // if 1: checks the event.
 
-// SERIAL COMMUNICATION - Modified : Waleed March-2024
+unsigned int PVDFsensor[nSensors] = {0};                          // Raw Data ADC values for all channels
+unsigned int iPVDFFiltered[ADCBufferLength][nSensors]= {{0},{0}}; // Data filtered by the LP filter
 
+int iPVDFFilteredBuffer[ADCBufferLength][nSensors] = {{0},{0}};     
+int derivative[nSensors] = {0};   // derivative global variable
+
+unsigned char CircledBuffer = 0;     // for data acquisition
+unsigned char CopiedData = 0; 
+unsigned char StartPoint = 0;          // Reading of data from input buffers
+
+//  ADC DIGITAL FILTER 
+unsigned int x_1[nSensors] = {0};           // starting values for filter
+unsigned long y_1[nSensors] = {0};
+unsigned int x_2[nSensors] = {0};           // starting values for filter
+unsigned long y_2[nSensors] = {0};
+
+
+void copyBuffer(unsigned int EndPoint);
+unsigned int LP_filter(unsigned int x0);
+
+// Touch Release events
+unsigned char StartDetection = 0;
+void eventDetection(int s);
+void activateMotor(uint8_t s);
+
+// DESC FEEDBACK
+unsigned char iCountEventT[nSensors] = {0};            // Counter for contact events
+unsigned char iCountEventR[nSensors] = {0};            // Counter for release events
+unsigned char ContactEvent[nSensors] = {0};            // Indicates that an application of pressure occurred
+unsigned char ReleaseEvent[nSensors] = {0};            // Indicates that a release of pressure occurred
+unsigned char MotorsActivation[nSensors] = {0};        // Temporary vector of variables to store the information regarding the activation of the 5 sensors to be sent to the motors
+unsigned int tRefractory_max = 140;                    // Time to wait before activating motors after an event detection
+unsigned int tLed_max = 200;                           //
+
+
+//communication - general 
+unsigned char checkCOM = 0;
+unsigned char SendData = 0;  
+
+void ReadCmd(uint8_t* msgHolder);
+
+// UART 
+unsigned char StartRX = 0;
 
 uint8_t inBuffer1[20];    // uart1 buffer
-uint8_t msgData1[10];     // extracted msgs go here.
+
+uint8_t msgData1[20];     // extracted msgs go here.
 uint8_t msgDataSize1 = 0; // the size of data in msgData
 volatile Buffer b_inBuffer1; 
 
 uint8_t outBuffer1[23];
 volatile Buffer b_outBuffer1;
 
+void msgInit_UART(void);
+void msgUpdate_UART(void);
+void msgUpdate_BT(void);
+
 
 // Bluetooth
+
+unsigned char StartBT = 1;
+
 uint8_t inBuffer2[50]; // uart2 buffer
 uint8_t msgData2[35];  // extracted msgs go here
 uint8_t msgDataSize2 = 0; // the size of data in msgData
@@ -172,12 +171,10 @@ volatile Buffer b_outBuffer2;
 bool flag_BT_reset = false;
 unsigned char BT_in = 0;
 
-uint8_t BTMAC_computer[6] = {0x5D,0xE4,0x32,0xDA,0x18,0x00};
-uint8_t BTMAC_pcb[6] = {0x85, 0x98, 0x32,0xDA, 0x18 ,0x00};
-
+uint8_t BTMAC_computer[6] = {0x5D,0xE4,0x32,0xDA,0x18,0x00}; // Default: last device connected and saved in EEPROM
+                                                             // can be set by user using UART command 0xA1 0xA2 0x0B 0x10 BTMAC[6] 0xA2 0xA1
+uint8_t BTMAC_pcb[6]; // gets filled upon when calling whoAmI() function
 uint8_t tempByte;
-
-unsigned char byteRead[20] = {};
 
 typedef enum {
     BT_POWER_OFF,     // 0
@@ -190,43 +187,17 @@ typedef enum {
 } bt_states;
 
 bt_states bt_state = BT_POWER_OFF; 
-uint8_t delay_attempts = 0;
 timeOutObj timeOut;
-/***********/
 
-unsigned char checkCOM = 0;
-unsigned char StartRX = 0;             // wait StartRX=1 for enabling serial communication
-volatile unsigned char ind=0;          // shifts RX buffer
-unsigned char NewDataArrived = 0;      // Flag to signal new data in RX
-unsigned char SendData = 0;            // Flag to allow sending data at 100Hz
-unsigned char aux = 0;                 // Used to populate properly the output buffer
-unsigned char StartPoint = 0;          // Reading of data from input buffers
-unsigned char OutByteToSend = 1;
-
-unsigned char CircledBuffer = 0;     // for data acquisition
-unsigned char CopiedData = 0; 
-unsigned char StartDetection = 0;
-
-// FUNCTIONS DECLARATION
-void copyBuffer(unsigned int EndPoint);
-void eventDetection(int s);
-unsigned int LP_filter(unsigned int x0);
-void configure_sequence_MUXA(char s1, char s2);
-void ManageSerialTX(void);
-void ManageSerialRX(void);
-void ReadCmd(uint8_t* msgHolder);
-void init_buffer(void);
-void sr_LED_primary(char led, bool state);
-void set_LED(char led);
-
+void msgInit_BT(void);
+void msgUpdate_BT(void);
 bt_states init_BT();
-bt_states connect_BT(uint8_t *BTMAC); // returns true if connected successfully
-bt_states setJustWorks(void);        //  returns true if connected successfully
-bt_states whoAmI(uint8_t *BTMAC);    // 
-void ManageSerialTX2(void);
+bt_states connect_BT(uint8_t *BTMAC); 
+bt_states setJustWorks(void);        
+bt_states whoAmI(uint8_t *BTMAC);
+bt_states disconnect_BT(void);
 
-volatile unsigned int T1counter = 0;
-const unsigned int T1counter_max = UINT_MAX; // 0xFFFF
+// LED
 unsigned char circleClrs = 0;
 const char colors[] = {'R', 'G', 'B', 'Y', 'C', 'M', 'W','0'};
 unsigned char  colorCounter = 0;
@@ -236,17 +207,18 @@ volatile bool blockLED = false;
 volatile bool LED_R_B = true;
 volatile bool wrapped = false;
 
-//Timer1 interrupt
+void sr_LED_primary(char led, bool state);
+void set_LED(char led);
+
+
+// interrupt routines 
 void __attribute__((__interrupt__, no_auto_psv)) _T1Interrupt(void){ 
     //@1KHz -> 1 msec
     DEBUG_PIN = !DEBUG_PIN;
-    if(T1counter == T1counter_max){
-        wrapped = !wrapped; // flips on each overflow.
-    }
-    T1counter++;
     
-    if(T1counter >= 1000){ 
-        T1counter = 0;
+    
+    
+    if(count%1000 == 0){ // every second
         if(LED_R_B){
             set_LED('R');
             LED_R_B = false;
@@ -257,34 +229,37 @@ void __attribute__((__interrupt__, no_auto_psv)) _T1Interrupt(void){
     }
     
     LED_switched = false;
-    count++; 
+    
     CountVibr1++;
     CountVibr2++;
 
     bluetime++;
     redtime++;
-
-    if (count == 3000) //makes it 100Hz 
-    {    
-        count = 0;
+    
+    if (count%100 == 0) //makes it 100Hz 
+    {   
+        if(count == count_max){ // overflow
+            count = 0;
+            wrapped = !wrapped;
+        }
         SendData=1;
-        Timer++;
-        
+        Timer = count;
     }
     
-    unsigned int q ; 
+    count++; 
+    
+    unsigned char q ; 
     for (q=0; q<ActiveSens; q++)
     {
         // to avoid double detection of the same contact event
         tRefractory[q]++;
     }
     
-    AD1CON1bits.SAMP = 1;
+    AD1CON1bits.SAMP = 1; // samples at 1kHz
 	
     IFS0bits.T1IF = 0; 
    
 }
-
 
 void __attribute__((__interrupt__)) _ADC1Interrupt(void){
     
@@ -330,7 +305,7 @@ void __attribute__((__interrupt__, no_auto_psv)) _U2TXInterrupt(void){
 
 void __attribute__((__interrupt__, no_auto_psv)) _U2RXInterrupt(void){
     while(U2STAbits.URXDA){
-//        uint8_t byteRecieved;
+        uint8_t byteRecieved;
         byteRecieved = U2RXREG;
         enq(&byteRecieved,&b_inBuffer2);
     }
@@ -339,6 +314,164 @@ void __attribute__((__interrupt__, no_auto_psv)) _U2RXInterrupt(void){
     }
     
     IFS1bits.U2RXIF = 0;                // Clear TX Interrupt flag
+}
+
+int main(int argc, char** argv){
+    // Initialization of micro and peripheral      
+    init_mcu();
+    // uart 1 buffers
+    b_inBuffer1 = initBuffer(inBuffer1,sizeof(inBuffer1)/sizeof(inBuffer1[0]));
+    b_outBuffer1 = initBuffer(outBuffer1,sizeof(outBuffer1)/sizeof(outBuffer1[0]));
+        
+    // Uart 2 buffers
+    b_inBuffer2  = initBuffer(inBuffer2,sizeof(inBuffer2)/sizeof(inBuffer2[0]));
+    b_outBuffer2 = initBuffer(outBuffer2,sizeof(outBuffer2)/sizeof(outBuffer2[0]));
+    
+    // Read last data saved in the EE Data Memory (EEPROM) before initializing the output buffer 
+    TBLPAG = 0x7F;  //Select the page to point (check EE Data Memory)
+    
+    tbloffset_thrT = __builtin_tbloffset(&eeThresholdT[0]); //initialize lower word of address
+    tbloffset_thrR = __builtin_tbloffset(&eeThresholdR[0]);  //address offset in the EEPROM
+    tbloffset_thrderT = __builtin_tbloffset(&eeThresholdDerT[0]);
+    tbloffset_thrderR = __builtin_tbloffset(&eeThresholdDerR[0]);
+    tbloffset_nSens = __builtin_tbloffset(&eeUsedSensors);
+    tbloffset_SendDer = __builtin_tbloffset(&eeSendDer);
+    tbloffset_StimTime = __builtin_tbloffset(&eeStimTime);
+    tbloffset_MotFlag = __builtin_tbloffset(&eeMotFlag);
+    
+    //Copy variables from EEPROM on local variables at the selected address (thresholds are read in the init_buffer function)
+    
+    ActiveSens = __builtin_tblrdl(tbloffset_nSens);    
+    StimTime = __builtin_tblrdl(tbloffset_StimTime);
+    MotFlag = __builtin_tblrdl(tbloffset_MotFlag);
+    
+    int i;
+    for (i=0;i<ActiveSens;i++){
+        int eeprom_pos = i*2;
+        ThresholdT[i] = __builtin_tblrdl(tbloffset_thrT+eeprom_pos);
+        ThresholdR[i] = __builtin_tblrdl(tbloffset_thrR+eeprom_pos);
+        ThresholdDerT[i] = __builtin_tblrdl(tbloffset_thrderT+eeprom_pos);
+        ThresholdDerR[i] = __builtin_tblrdl(tbloffset_thrderR+eeprom_pos);
+    }
+   
+    tmr1_init();
+    init_ADC();
+    init_uart();
+	// Timer init
+	TMR1_INT_ENABLE = 1;            // Enable interrupt of Timer1
+    TMR1_ENABLE = 1;                // Enable Timer1
+     
+    IEC0bits.U1TXIE = 1;
+    
+    circleClrs = 1;
+    colorTime = 100;
+    
+    bt_state = init_BT();
+    if(bt_state == BT_POWER_ON){
+        bt_state = whoAmI(BTMAC_pcb);
+        bt_state = connect_BT(BTMAC_computer);
+    }
+
+    msgInit_UART(); // sets the default values in output message
+    msgInit_BT();
+    send_uart(0xFF);
+    send_uart(0xF2);  
+    while (1){
+        copyBuffer(w);
+        if (icheckEvent==1){
+            icheckEvent = 0;
+            int p2;
+            for(p2=0; p2<ActiveSens; p2++) {
+                eventDetection(p2);   // rileva l'evento (nel nostro caso fino a1 massimo in una window di acquisizione del ADC buffer)
+            }
+        }
+        
+        // CountVibr1 and 2 are in msec (frequency of timer1)
+        if (CountVibr1 > StimTime && MotFlag )  {            
+            MOT1 = 0;
+            MotorsActivation[0] = 0;
+        }
+        if (CountVibr2 > StimTime && MotFlag)  {
+            MOT2 = 0;
+            MotorsActivation[1] = 0;
+        }
+        
+        
+        //--- Debugging tools
+        // [1] mimic bluetooth interface on uart1
+        // used for debugging
+        /*
+        if(b_inBuffer1.head > 7){
+            while(!b_inBuffer1.isEmpty){
+              deq(&msgData2,&b_inBuffer1); // copy from 2
+              enq(&msgData2,&b_inBuffer2); // put in 1
+            }
+            processMsgBluetooth(&b_inBuffer2, 0x41);
+        }
+        */
+        // [2] echo2To1
+        // echo from 2 to 1
+        /*
+        while(!b_inBuffer2.isEmpty){
+            //set_LED('R');
+            deq(&msgData2,&b_inBuffer2); // copy from 2
+            enq(&msgData2,&b_outBuffer1); // put in 1
+        }
+        */
+        //--- end of Debugging tools
+        
+        // check if valid messages are recieved 
+        processMsg(&b_inBuffer1);
+        processMsgBluetooth(&b_inBuffer2, 0x84);
+        
+        if(b_inBuffer1.msgCount >= 1){
+            getMsg(&b_inBuffer1, msgData1,&msgDataSize1);
+            ReadCmd(msgData1);
+        }
+        
+        if(b_inBuffer2.msgCount >= 1){
+            getMsg(&b_inBuffer2, msgData2,&msgDataSize2);
+            ReadCmd(msgData2);
+        }
+        
+        
+        if (SendData==1 && b_outBuffer1.isEmpty ){
+            // every 100Hz
+            SendData=0;
+            if(StartRX) msgUpdate_UART(); // 
+            if(bt_state == BT_CONNECTED && StartBT) msgUpdate_BT(); //
+        }
+        
+        // check if there are bytes to send.
+
+        timeOut = timeOutBegin(&count,5,&wrapped);
+        while(!b_outBuffer1.isEmpty){
+            deq(&tempByte, &b_outBuffer1);
+            send_uart(tempByte);
+           if(timeOutCheck(&timeOut)) break;
+        }
+        
+        timeOut = timeOutBegin(&count,5,&wrapped);
+        while(!b_outBuffer2.isEmpty){
+            deq(&tempByte, &b_outBuffer2);
+            send_uart2(tempByte);
+            if(timeOutCheck(&timeOut)) break;
+        }
+        
+        // this is non-blocking LED blink.
+        /*
+        if ((circleClrs > 0) && !(count % colorTime) && !LED_switched && !blockLED){
+            // little dance
+            set_LED(colors[colorCounter++]);
+            if(!(colorCounter % 8)) {
+                circleClrs--;
+                colorCounter = 0;
+            }
+            LED_switched = true;
+        }
+        */
+    }
+	return (EXIT_SUCCESS);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -379,7 +512,7 @@ void copyBuffer(unsigned int EndPoint){ // da eseguire if copyFlag[p] == 1
 //          need to be changed every time.                                    //
 ////////////////////////////////////////////////////////////////////////////////
 
-void init_buffer (void){
+void msgInit_UART (void){
     outBuffer1[0] = 0xA1;
     outBuffer1[1] = 0xA2;
     
@@ -407,12 +540,12 @@ void init_buffer (void){
 //Function: This function updates the Output Buffer with the right values of  //
 //          analog signals to send the interface                              //
 ////////////////////////////////////////////////////////////////////////////////
-void ManageSerialTX(void){
+void msgUpdate_UART(void){
     unsigned int j;
     outBuffer1[5] = (Timer & 0xFF00) >> 8;   // time stamp read at 100Hz
     outBuffer1[6] = (Timer & 0x00FF);
     for (j=0; j<ActiveSens; j++){
-        aux = 7*j;
+        uint8_t aux = 7*j;
         outBuffer1[7+aux] = MotorsActivation[j];     // For each sensor/motor we want to send its state of activation
         
         outBuffer1[8+aux] = (iPVDFFilteredBuffer[StartDetection][j] & 0xFF00) >> 8;   // the voltage level read at 100Hz
@@ -423,41 +556,6 @@ void ManageSerialTX(void){
     b_outBuffer1.isEmpty = false;
     b_outBuffer1.isFull  = true;
 }
-
-////////////////////////////////////////////////////////////////////////////////
-//Input:    None                                                              //
-//Output:   None                                                              //
-//Function: This function analyzes the Serial Input Buffer to recognise header//
-//          and tail of a valid message, and in this case calls ReadCmd to    //
-//          perform the relative command.
-////////////////////////////////////////////////////////////////////////////////
-//
-//void ManageSerialRX(void) {
-//
-//    int message_size;
-//    int message_arrived=0;
-//    int i;
-//    for (i=0; i<InputBufferLength; i++){
-//        if ((InputBuffer[i]==0xA1) && (InputBuffer[(i+1)%InputBufferLength]==0xA2)){
-//            message_size = InputBuffer[(i+2)%InputBufferLength];
-//            if ((InputBuffer[(i+message_size-1)%InputBufferLength]==0xA1) && (InputBuffer[(i+message_size-2)%InputBufferLength]==0xA2)){
-//               ReadCmd(i,InputBuffer[(i+3)%InputBufferLength]); 
-//               bluetime = 0;
-//               BLUELED = 1;
-//               InputBuffer[i]=0; 
-//               message_arrived=1;
-//            }
-//        }
-//    }
-//    NewDataArrived=0;
-//}
-
-
-//comState prevState = ERROR;
-//comState state = A1START;
-////unsigned char size = 0;
-//unsigned char countMsg = 0;
-
 
 ////////////////////////////////////////////////////////////////////////////////
 //Input:    Byte of the Serial Input Buffer from where we start reading(start)//
@@ -481,10 +579,10 @@ void ReadCmd(uint8_t *msgHolder){
     }
     
     switch (msgHolder[shift+0]){
-        case 0:
+        case 0: // check Communication
             checkCOM = 1; //TX one message to confirm that is the correct port
             break;
-        case 1:
+        case 1: // set thresholds for thumb 
             ThresholdT[0] = msgHolder[shift+1]*4;
             ThresholdR[0] = msgHolder[shift+2]*4;
             ThresholdDerT[0]= msgHolder[shift+3]*4;
@@ -500,7 +598,7 @@ void ReadCmd(uint8_t *msgHolder){
             outBuffer1[12]= ThresholdDerT[0]/4;
             outBuffer1[13]= ThresholdDerR[0]/4;
             break;
-        case 2:
+        case 2:// set thresholds for index
             ThresholdT[1]= msgHolder[shift+1]*4;
             ThresholdR[1]= msgHolder[shift+2]*4;
             ThresholdDerT[1]= msgHolder[shift+3]*4;
@@ -516,11 +614,8 @@ void ReadCmd(uint8_t *msgHolder){
             outBuffer1[19]= ThresholdDerT[1]/4;
             outBuffer1[20]= ThresholdDerR[1]/4;
             break;
-        case 4:
-            // bluetooth setup 
-            // to - do 
-            
-        case 6:
+        
+        case 6: // setting for feedback
             if (msgHolder[1]<=nSensors){   //message is valid              
                 ActiveSens = msgHolder[shift+1];
                 MotFlag = msgHolder[shift+2];
@@ -537,8 +632,27 @@ void ReadCmd(uint8_t *msgHolder){
                 // to do
             }
             break;
-        case 7:
+        case 7: // send data uart
             StartRX = msgHolder[shift+1];
+            break;
+        case 8: // send data bluetooth
+            StartBT = msgHolder[shift+1];
+            break;
+        case 0x0A: // connect to new BTMAC 
+            if(msgHolder[shift-1] == 0xC){ // check BTMAC valid
+                if(BT_CONNECTED) bt_state = disconnect_BT();
+                StartBT = 0;
+                bt_state= BT_CONNECTED; //connect_BT(&msgHolder[shift+1]);
+                if(bt_state == BT_CONNECTED){
+                    StartBT = 0;
+                    memcpy(&BTMAC_computer,&msgHolder[shift+1],6);
+                    
+                    // to-do update eeprom too
+                    
+                }
+            }
+            break;
+        default:
             break;
     }
     return;
@@ -569,52 +683,41 @@ void eventDetection(int s){    //s indicates the sensor [0-1]
         }
     }
     
-    if (((iCountEventT[s]>= 6) ) && (tRefractory[s] > tRefractory_max+StimTime)) { // 140 in refractory to really have 150ms
-        
-        ContactEvent[s] = 1;   // Attivazione DESC
-        tRefractory[s] = 0;
-        
-        MotorsActivation[s] = 1; 
-        
-        
-        if (MotFlag == 1){
-            if (s == 0) {
-                MOT1=1;
-                set_LED('R');
-                CountVibr1 = 0;
-                redtime = 0;
-            }
-            if (s == 1) {
-                MOT2=1;
-                set_LED('B');
-                CountVibr2 = 0;
-                bluetime = 0;
-            }
-        }
-    } else if (((iCountEventR[s]>= 6)) && (tRefractory[s] > tRefractory_max+StimTime)) {
-        ReleaseEvent[s] = 1;               // Attivazione DESC
-        tRefractory[s] = 0;
-
-        MotorsActivation[s] = 1;                       
-        if(MotFlag == 1){
-            if (s == 0) {
-                MOT1=1;
-                set_LED('G');
-                redtime = 0;
-                CountVibr1 = 0;
-            }
-            if (s == 1) {
-                MOT2=1;
-                set_LED('W');
-                bluetime = 0;
-                CountVibr2 = 0;
-            }
+    if (tRefractory[s] > tRefractory_max+StimTime){ 
+        // time has passed
+        if (iCountEventT[s]>= 6){ 
+            ContactEvent[s] = 1;  
+            tRefractory[s] = 0;
+            MotorsActivation[s] = 1; 
+            if (MotFlag == 1) activateMotor(s);
+            
+        }else if(iCountEventR[s]>= 6) {
+            ReleaseEvent[s] = 1;
+            tRefractory[s] = 0;
+            MotorsActivation[s] = 1;                       
+            if(MotFlag == 1)activateMotor(s);  
         }
     }
     
     iCountEventT[s] = 0;   // Reset of the counters of values over threshold
     iCountEventR[s] = 0; 
     StartDetection = (StartDetection+wLenght)%ADCBufferLength;  // Move the window inside the buffer
+}
+
+// helper funtion activates motors and resets timers.
+void activateMotor(uint8_t s){
+    if (s == 0) {
+        MOT1=1;
+        set_LED('R');
+        CountVibr1 = 0;
+        redtime = 0;
+    }
+    if (s == 1) {
+        MOT2=1;
+        set_LED('B');
+        CountVibr2 = 0;
+        bluetime = 0;
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -627,67 +730,9 @@ void eventDetection(int s){    //s indicates the sensor [0-1]
 ////////////////////////////////////////////////////////////////////////////////
 unsigned int LP_filter(unsigned int i_x0){
 
-    unsigned int i_y0 = 0;
-
-    //  Old LP filter  // not very selective of the noise, too wide
-    
-//    unsigned int a = 0xF5;
-//    unsigned int b = 0x216;
-//    unsigned long aux1 = 0;
-//    unsigned long aux2 = 0;
-//    unsigned long aux3 = 0;
-//    
-//    y0 = ((unsigned long)a * (x0 + x_1))>>10 + ((unsigned long)b * y_1)>>10;
-//    aux1 = ((unsigned long)a * (i_x0 + x_1[p]))>>10 ;
-//    aux2 = ((unsigned long)b * y_1[p])>>10;
-//    aux3 = aux1+aux2;
-//    i_y0 = (unsigned int)aux3;
-//    x_1[p] = i_x0;
-//    y_1[p] = i_y0;
-    
-    
-    // Butterworth 4th  // It is too computationally heavy to be implemented in our application
-   
-//    float b = 0.0000079446;    
-//    float a1 = 3.71274;   
-//    float a2 = 5.17878;
-//    float a3 = 3.21604;   
-//    float a4 = 0.75014;
-//    
-//    float aux1 = 0;
-//    float aux2 = 0;
-//    float aux3 = 0;
-//    
-//    aux1 = b*(float)(i_x0+4*x_1[p]+6*x_2[p]+4*x_3[p]+x_4[p]);
-//    aux2 = a2*y_2[p]+a4*y_4[p]-a1*y_1[p]-a3*y_3[p];
-//	  aux3 = aux1-aux2;
-//    i_y0 = (unsigned int)aux3;
-//    x_4[p] = x_3[p];
-//	  y_4[p] = y_3[p];
-//    x_3[p] = x_2[p];
-//	  y_3[p] = y_2[p];
-//    x_2[p] = x_1[p];
-//	  y_2[p] = y_1[p];
-//	  x_1[p] = i_x0;    
-//	  y_1[p] = aux3;
-    
-    
-    // Moving average  // works fine, 18 should be the best but too big of a window maybe
-    
-//    unsigned int i = 0;   
-//    unsigned int average= 0;
-//    //average[p] = average[p] - movavg[p][windowLenght-1];
-//    for (i=0; i<windowLenght-2; i++){
-//        movavg[p][i+1] = movavg[p][i];
-//        average = average + movavg[p][i];
-//    }
-//    average = average + i_x0;
-//    movavg[p][0] = i_x0;
-//    i_y0 = (unsigned int) average/windowLenght;
-    
-    
-    // Butterworth 2nd 17 Hz // Even faster than moving average, more selective
-    
+    unsigned int i_y0 = 0;    
+    // Butterworth 2nd 17 Hz 
+    // Even faster than moving average, more selective
     unsigned long b = 3;    
     unsigned long a1 = 1889;   
     unsigned long a2 = 875;
@@ -708,23 +753,6 @@ unsigned int LP_filter(unsigned int i_x0){
 	x_1[p] = i_x0;
 	y_1[p] = aux4;
     
-    
-    // Notch filter 50 Hz
-//    unsigned long b =  878; 
-//    unsigned long b1 = -1671; 
-//    unsigned long b2 =  878; 
-//    unsigned long a1 = -1671;   
-//    unsigned long a2 =  733;
-//    
-//    unsigned long aux1=0;
-//    unsigned long aux2=0;
-//    unsigned long aux3=0;
-//    
-//    aux1 = (b*(unsigned long)(i_x0) + b1*(unsigned long)(x_1[p])+ b2*(unsigned long)(x_2[p]))/1024;
-//    aux2 = (a1 * y_1[p]+a2 * y_2[p])/1024;
-//    aux3 = aux1-aux2;
-//    i_y0 = (unsigned int)aux3;
-
 	return i_y0;
 }
 
@@ -810,169 +838,6 @@ void set_LED(char led)
 }
 
 
-int main(int argc, char** argv){
-    // Initialization of micro and peripheral      
-    init_mcu();
-    // uart 1 buffers
-    b_inBuffer1 = initBuffer(inBuffer1,sizeof(inBuffer1)/sizeof(inBuffer1[0]));
-    b_outBuffer1 = initBuffer(outBuffer1,sizeof(outBuffer1)/sizeof(outBuffer1[0]));
-        
-    // Uart 2 buffers
-    b_inBuffer2  = initBuffer(inBuffer2,sizeof(inBuffer2)/sizeof(inBuffer2[0]));
-    b_outBuffer2 = initBuffer(outBuffer2,sizeof(outBuffer2)/sizeof(outBuffer2[0]));
-    
-    // Read last data saved in the EE Data Memory (EEPROM) before initializing the output buffer 
-    TBLPAG = 0x7F;  //Select the page to point (check EE Data Memory)
-    
-    tbloffset_thrT = __builtin_tbloffset(&eeThresholdT[0]); //initialize lower word of address
-    tbloffset_thrR = __builtin_tbloffset(&eeThresholdR[0]);  //address offset in the EEPROM
-    tbloffset_thrderT = __builtin_tbloffset(&eeThresholdDerT[0]);
-    tbloffset_thrderR = __builtin_tbloffset(&eeThresholdDerR[0]);
-    tbloffset_nSens = __builtin_tbloffset(&eeUsedSensors);
-    tbloffset_SendDer = __builtin_tbloffset(&eeSendDer);
-    tbloffset_StimTime = __builtin_tbloffset(&eeStimTime);
-    tbloffset_MotFlag = __builtin_tbloffset(&eeMotFlag);
-    
-    //Copy variables from EEPROM on local variables at the selected address (thresholds are read in the init_buffer function)
-    
-    ActiveSens = __builtin_tblrdl(tbloffset_nSens);    
-    StimTime = __builtin_tblrdl(tbloffset_StimTime);
-    MotFlag = __builtin_tblrdl(tbloffset_MotFlag);
-    
-    int i;
-    for (i=0;i<ActiveSens;i++){
-        int eeprom_pos = i*2;
-        ThresholdT[i] = __builtin_tblrdl(tbloffset_thrT+eeprom_pos);
-        ThresholdR[i] = __builtin_tblrdl(tbloffset_thrR+eeprom_pos);
-        ThresholdDerT[i] = __builtin_tblrdl(tbloffset_thrderT+eeprom_pos);
-        ThresholdDerR[i] = __builtin_tblrdl(tbloffset_thrderR+eeprom_pos);
-    }
-   
-    tmr1_init();
-    
-    
-    
-    DEBUG_PIN = 0;
-    
-    init_ADC();
-    
-    init_uart();
-    
-    
-	// Timer init
-	TMR1_INT_ENABLE = 1;            // Enable interrupt of Timer1
-    TMR1_ENABLE = 1;                // Enable Timer1
-     
-    IEC0bits.U1TXIE = 1;
-    
-    circleClrs = 1;
-    colorTime = 100;
-    
-    bt_state = init_BT();
-    if(bt_state == BT_POWER_ON){
-        bt_state = whoAmI(BTMAC_pcb);
-        bt_state = connect_BT(BTMAC_computer);
-    }
-    init_buffer(); // sets the default values in output message
-    init_buffer2();
-    while (1){
-        copyBuffer(w);
-        
-
-        if (icheckEvent==1){
-            icheckEvent = 0;
-            int p2;
-            for(p2=0; p2<ActiveSens; p2++) {
-                eventDetection(p2);   // rileva l'evento (nel nostro caso fino a1 massimo in una window di acquisizione del ADC buffer)
-            }
-        }
-        
-        // CountVibr1 and 2 are in msec (frequency of timer1)
-        if (CountVibr1 > StimTime)  {            
-            MOT1 = 0;
-            MotorsActivation[0] = 0;
-        }
-        if (CountVibr2 > StimTime)  {
-            MOT2 = 0;
-            MotorsActivation[1] = 0;
-        }
-        
-        
-        //--- Debugging tools
-        // [1] mimic bluetooth interface on uart1
-        // used for debugging
-        /*
-        if(b_inBuffer1.head > 7){
-            while(!b_inBuffer1.isEmpty){
-              deq(&msgData2,&b_inBuffer1); // copy from 2
-              enq(&msgData2,&b_inBuffer2); // put in 1
-            }
-            processMsgBluetooth(&b_inBuffer2, 0x41);
-        }
-        */
-        // [2] echo2To1
-        // echo from 2 to 1
-        /*
-        while(!b_inBuffer2.isEmpty){
-            //set_LED('R');
-            deq(&msgData2,&b_inBuffer2); // copy from 2
-            enq(&msgData2,&b_outBuffer1); // put in 1
-        }
-        */
-        //--- end of Debugging tools
-        
-        // check if valid messages are recieved 
-        processMsg(&b_inBuffer1);
-        processMsgBluetooth(&b_inBuffer2, 0x84);
-        
-        if(b_inBuffer1.msgCount >= 1){
-            getMsg(&b_inBuffer1, msgData1,&msgDataSize1);
-            ReadCmd(msgData1);
-        }
-        
-        if(b_inBuffer2.msgCount >= 1){
-            getMsg(&b_inBuffer2, msgData2,&msgDataSize2);
-            ReadCmd(msgData2);
-        }
-        
-        
-        if (SendData==1 && b_outBuffer1.isEmpty ){
-            // every 100Hz
-            SendData=0;
-            if(1) ManageSerialTX(); // StartRX
-            if(1) ManageSerialTX2(); //bt_state == BT_CONNECTED
-        }
-        
-        // check if there are bytes to send.
-        if(!b_outBuffer1.isEmpty){
-            deq(&tempByte, &b_outBuffer1);
-            send_uart(tempByte);
-        }
-        
-        if(!b_outBuffer2.isEmpty){
-            deq(&tempByte, &b_outBuffer2);
-            send_uart2(tempByte);
-        }
-        
-
-        // this is non-blocking LED blink.
-        /*
-        if ((circleClrs > 0) && !(T1counter % colorTime) && !LED_switched && !blockLED){
-            // little dance
-            set_LED(colors[colorCounter++]);
-            // DEBUG_PIN = !DEBUG_PIN;
-            if(!(colorCounter % 8)) {
-                circleClrs--;
-                colorCounter = 0;
-            }
-            LED_switched = true;
-        }
-        */
-    }
-	return (EXIT_SUCCESS);
-}
-
-
 bt_states init_BT(){
     BT_RESET = 0;
     __delay_ms(10); //BT user manual (pag. 33)
@@ -980,9 +845,9 @@ bt_states init_BT(){
     
     const char expectedResponse[7] = {0x02, 0x41, 0x02, 0x00, 0x01, 0x01, 0x41};
 
-    timeOut = timeOutBegin(&T1counter,500,&wrapped);
+    timeOut = timeOutBegin(&count,500,&wrapped);
     while(!processMsgBluetooth(&b_inBuffer2, 0x41)){
-       if(timeOutCheck(&timeOut)) break;
+       if(timeOutCheck(&timeOut)) return(BT_TIMEOUT);
     }
     while(b_inBuffer2.msgCount > 0){
         getMsg(&b_inBuffer2, msgData2,&msgDataSize2);
@@ -1011,12 +876,12 @@ bt_states connect_BT(uint8_t *BTMAC){
       send_uart2(outBuffer2[i]);
     }
     
-    timeOut = timeOutBegin(&T1counter,1000,&wrapped);
+    timeOut = timeOutBegin(&count,100,&wrapped);
     while(!processMsgBluetooth(&b_inBuffer2, 0x86)){
        if(timeOutCheck(&timeOut)) return(BT_TIMEOUT); 
     }
     
-    timeOut = timeOutBegin(&T1counter,1000,&wrapped);
+    timeOut = timeOutBegin(&count,100,&wrapped);
     while(b_inBuffer2.msgCount>0){ 
         getMsg(&b_inBuffer2, msgData2,&msgDataSize2);
         if(msgData2[2] == 7 && !memcmp(&msgData2[5],BTMAC,6)){ // success
@@ -1029,14 +894,15 @@ bt_states connect_BT(uint8_t *BTMAC){
 }
 
 bt_states whoAmI(uint8_t *BTMAC){
+    
     const uint8_t CMD_GET_REQ[6] = {0x02,0x10,0x01,0x00,0x04,0x17};
     for (int i = 0; i<6; i++) {
       send_uart2(CMD_GET_REQ[i]);
     }
     
-    timeOut = timeOutBegin(&T1counter,500,&wrapped);
+    timeOut = timeOutBegin(&count,100,&wrapped);
     while(!processMsgBluetooth(&b_inBuffer2, 0x50)){
-        if(timeOutCheck(&timeOut)) break;
+        if(timeOutCheck(&timeOut)) return(BT_TIMEOUT);
     }
     
     while(b_inBuffer2.msgCount > 0 ){
@@ -1058,7 +924,7 @@ bt_states setJustWorks(void){
         send_uart2(CMD_SET_REQ_JW[i]);
     }
 
-    timeOut = timeOutBegin(&T1counter,500,&wrapped);
+    timeOut = timeOutBegin(&count,100,&wrapped);
     while(!processMsgBluetooth(&b_inBuffer2, 0x51)){
        if(timeOutCheck(&timeOut)) break;
     }
@@ -1081,7 +947,7 @@ bt_states setJustWorks(void){
     return(BT_NOT_OK);
 }
 
-void init_buffer2(void) { 
+void msgInit_BT(void) { 
     // follows CMD_DATA_REQ in proteusIII manual
     // 0x02 0x04 LENGTH[2 bytes] PAYLOAD[LENGTH bytes] CS[1Byte] // 
     
@@ -1115,12 +981,17 @@ void init_buffer2(void) {
     outBuffer2[27] = calcCS_array(outBuffer2,27);
 }
 
-void ManageSerialTX2(void){
+void msgUpdate_BT(void){
+    // check outBuffer is correct.
+    const uint8_t msgStart[4] = {0x02, 0x04, 0x17, 0x00};
+    if(memcmp(outBuffer2,msgStart,4)){
+        msgInit_BT(); // the outBuffer2 has old data from other commands
+    }
     
     outBuffer2[9] = (Timer & 0xFF00) >> 8;   // the voltage level read at 100Hz
     outBuffer2[10] = (Timer & 0x00FF);
     for (uint8_t j=0; j<ActiveSens; j++){
-        aux = 7*j;
+        uint8_t aux = 7*j;
         outBuffer2[11+aux] = MotorsActivation[j];     // For each sensor/motor we want to send its state of activation
         outBuffer2[12+aux] = (iPVDFFilteredBuffer[StartDetection][j] & 0xFF00) >> 8;   // the voltage level read at 100Hz
         outBuffer2[13+aux] = (iPVDFFilteredBuffer[StartDetection][j] & 0x00FF);
@@ -1132,4 +1003,22 @@ void ManageSerialTX2(void){
     b_outBuffer2.isFull  = true;
 }
 
-
+bt_states disconnect_BT(void){
+     const uint8_t CMD_DISCONNECT_REQ[5] = {0x02,0x07,0x00,0x00,0x05};
+     for (int i = 0; i<5; i++) {
+      send_uart2(CMD_DISCONNECT_REQ[i]);
+    }
+    
+    timeOut = timeOutBegin(&count,100,&wrapped);
+    while(!processMsgBluetooth(&b_inBuffer2, 0x47)){
+        if(timeOutCheck(&timeOut)) return(BT_TIMEOUT);
+    }
+    
+    while(b_inBuffer2.msgCount > 0 ){
+        getMsg(&b_inBuffer2, msgData2,&msgDataSize2);
+        if(msgData2[1] == 0x47 && msgData2[4] == 0x00){// disconnected 
+            return(BT_NOT_CONNECTED);
+        }
+        if(timeOutCheck(&timeOut)) return(BT_TIMEOUT);
+    }
+}
