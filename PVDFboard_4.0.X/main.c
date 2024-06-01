@@ -7,25 +7,36 @@
  * Rev. 
  */
 
-/* v3.0   * Reading of 2 analog piezoelectric (PVDF) sensor, sampled at 1KHz
- * 
- * ------------ Testing parts ----------
- * - only UART tested.
- * 
- * - results:
- *  
- *  
- * UART transmission of sensors data
- * - BAUDRATE to set on the Serial Terminal Port is 62500 
- * - Not used. First byte sent by the main, the following bytes are sent by interrupt
+/* v4.0  
+ * Author : Waleed Alghilan, May 2024
  *
- * Interrupts:
- * - Timer1 --> to increment variables
- * - UART TX
- * - ADC --> it samples at 1 KHz 
- *
+ * 
+ * UART 1 baudrate 115200 8N1   [PC]
+ * UART 2 baudrate 115200 8N1   [Bluetooth]
+ * ADC reading 2 channels at 1KHz AN0 and AN13
+ * ADC signal filtered with a 4th order Butterworth LP filter
+ * 
+ * [Fcy] = Fosc/2 = 32Mhz/2 = 16MHz [PPL x4 activated and no prescalers]
+ * [Tcy] = 62.5ns
+ * 
+ * interrupts: 
+ * [1] Timer1 1KHz.
+ * [2] UART1 RX, TX recieve and send. 
+ * [3] ADC interrupt when two channels are read. set to start sampling every Timer1 interrupt (1KHz).
+ * 
+ * 
+ * setup.c is used to initialize the microcontroller and the peripherals.
+ * 
+ * buffers.c is used to manage data incoming from UART1 and UART2.
+ * msgs.c is reading the incoming data in buffers.c and gets the data from them following a spcecifc order.
+ *  - processMsgBluetooth is used to handle the incoming data from the bluetooth module. [02 COMMAND SIZE PAYLOAD CS]
+ *  - processMsg is used to handle the incoming data from the PC. [A1 A2 SIZE PAYLOAD A2 A1]
+ *  - in both cases data recieved in uart are discared (noise) if it fails to follow the communication protocol.
+ * timeout.c is used to manage the timeout for the communication.
  * 
  */
+
+
 #include "setup.h"       // <- MUST BE INCLUDED FIRST
 #include "xc.h"
 #include "buffers.h"    
@@ -177,13 +188,14 @@ uint8_t BTMAC_pcb[6]; // gets filled upon when calling whoAmI() function
 uint8_t tempByte;
 
 typedef enum {
-    BT_POWER_OFF,     // 0
-    BT_POWER_ON,      // 1
-    BT_CONNECTED,     // 2
-    BT_NOT_CONNECTED, // 3
-    BT_OK,            // 4
-    BT_NOT_OK,        // 5
-    BT_TIMEOUT        // 6
+    BT_POWER_OFF,       // 0
+    BT_POWER_ON,        // 1
+    BT_CONNECTED,       // 2
+    BT_NOT_CONNECTED,   // 3
+    BT_OK,              // 4
+    BT_NOT_OK,          // 5
+    BT_TIMEOUT,         // 6
+    BT_STATUS_NOT_OK    // 7  A message response is received but says it failed to execute the command
 } bt_states;
 
 bt_states bt_state = BT_POWER_OFF; 
@@ -191,11 +203,16 @@ timeOutObj timeOut;
 
 void msgInit_BT(void);
 void msgUpdate_BT(void);
+// low-level interfaces 
+bt_states CMD_REQ(const uint8_t *msg, uint8_t msgSize, uint16_t waitTime); 
+bt_states CMD_RSP_IND(const uint8_t flag,  uint16_t waitTime);
+// high-level funcitons
 bt_states init_BT();
 bt_states connect_BT(uint8_t *BTMAC); 
 bt_states setJustWorks(void);        
 bt_states whoAmI(uint8_t *BTMAC);
 bt_states disconnect_BT(void);
+bt_states rename_BT(uint8_t* name, uint8_t nameSize);
 
 // LED
 unsigned char circleClrs = 0;
@@ -652,6 +669,11 @@ void ReadCmd(uint8_t *msgHolder){
                 }
             }
             break;
+        case 0x0B: // set name
+            if(msgHolder[shift-1] == 0xB){ // check BTMAC valid
+                rename_BT(&msgHolder[shift+1],5);
+            }
+            break;
         default:
             break;
     }
@@ -842,110 +864,138 @@ bt_states init_BT(){
     BT_RESET = 0;
     __delay_ms(10); //BT user manual (pag. 33)
     BT_RESET = 1;
-    
-    const char expectedResponse[7] = {0x02, 0x41, 0x02, 0x00, 0x01, 0x01, 0x41};
 
-    timeOut = timeOutBegin(&count,500,&wrapped);
-    while(!processMsgBluetooth(&b_inBuffer2, 0x41)){
-       if(timeOutCheck(&timeOut)) return(BT_TIMEOUT);
-    }
-    while(b_inBuffer2.msgCount > 0){
-        getMsg(&b_inBuffer2, msgData2,&msgDataSize2);
-        if(!memcmp(msgData2,expectedResponse,msgDataSize2)){ // success
-            return(BT_POWER_ON);
-        }
+    CMD_RSP_IND(0x41,500); // CMD_RESET_IND
+    if(msgData2[4] == 1 && msgData2[5] == 1){ // [4] role : 1 -> peripheral, [5] action : 1 -> idle
+        return(BT_POWER_ON);
     }
     return(BT_POWER_OFF);
 }
 
-bt_states connect_BT(uint8_t *BTMAC){
+bt_states connect_BT(uint8_t BTMAC[6]){
     
-    outBuffer2[0]=0x02;
-    outBuffer2[1]=0x06;
-    outBuffer2[2]=0x06;
-    outBuffer2[3]=0x00;
-    outBuffer2[4]= BTMAC[0];//0x5D; //dongle BT MAC
-    outBuffer2[5]= BTMAC[1];//0xE4; //dongle BT MAC
-    outBuffer2[6]= BTMAC[2];//0x32; //dongle BT MAC
-    outBuffer2[7]= BTMAC[3];//0xDA; //dongle BT MAC
-    outBuffer2[8]= BTMAC[4];//0x18; //dongle BT MAC
-    outBuffer2[9]= BTMAC[5];//0x00; //dongle BT MAC
-    outBuffer2[10]=calcCS_array(outBuffer2, 10); //checksum
-        
-    for (int i = 0; i<11; i++) {
-      send_uart2(outBuffer2[i]);
-    }
+    bt_states temp;
+
+    uint8_t msg[11] = {0x02,0x06,0x06,0x00,BTMAC[0],BTMAC[1],BTMAC[2],BTMAC[3],BTMAC[4],BTMAC[5],0x00};
+    msg[10] = calcCS_array(msg,10);
     
-    timeOut = timeOutBegin(&count,100,&wrapped);
-    while(!processMsgBluetooth(&b_inBuffer2, 0x86)){
-       if(timeOutCheck(&timeOut)) return(BT_TIMEOUT); 
-    }
-    
-    timeOut = timeOutBegin(&count,100,&wrapped);
-    while(b_inBuffer2.msgCount>0){ 
-        getMsg(&b_inBuffer2, msgData2,&msgDataSize2);
-        if(msgData2[2] == 7 && !memcmp(&msgData2[5],BTMAC,6)){ // success
-            return(BT_CONNECTED);
-        }
-        if(timeOutCheck(&timeOut)) return(BT_TIMEOUT);
-    }
-    
+    temp = CMD_REQ(msg,11,100);
+    if(temp != BT_OK) return(temp);
+
+    temp = CMD_RSP_IND(0x86,100); // CMD_CONNECT_IND
+    if(temp != BT_OK) return(temp);
+
+    temp = CMD_RSP_IND(0x88,100); // CMD_CONNECT_IND
+    if(temp != BT_OK) return(temp);
+
+    temp = CMD_RSP_IND(0xC6,100); // CMD_CONNECT_IND
+    if(temp != BT_OK) return(temp);
+
+    if(!memcmp(&msgData2[5],BTMAC,6)) return(BT_CONNECTED);
+
     return(BT_NOT_CONNECTED);
 }
 
 bt_states whoAmI(uint8_t *BTMAC){
     
+    bt_states temp;
+
     const uint8_t CMD_GET_REQ[6] = {0x02,0x10,0x01,0x00,0x04,0x17};
-    for (int i = 0; i<6; i++) {
-      send_uart2(CMD_GET_REQ[i]);
-    }
     
-    timeOut = timeOutBegin(&count,100,&wrapped);
-    while(!processMsgBluetooth(&b_inBuffer2, 0x50)){
-        if(timeOutCheck(&timeOut)) return(BT_TIMEOUT);
-    }
-    
-    while(b_inBuffer2.msgCount > 0 ){
-        getMsg(&b_inBuffer2, msgData2,&msgDataSize2);
-        if(msgData2[1] == 0x50 && msgData2[2] == 0x07){// got a BTMAC response
-            for(int i = 0; i < 5;i++){
-                BTMAC[i] = msgData2[i+5];
-            }
-            return(BT_OK);
+    temp = CMD_REQ(CMD_GET_REQ,6,100);
+    if(temp != BT_OK) return(temp);
+
+    if(msgData2[2] == 0x07){// got a BTMAC response
+        for(int i = 0; i < 5;i++){
+            BTMAC[i] = msgData2[i+5];
         }
-        if(timeOutCheck(&timeOut)) return(BT_TIMEOUT);
+        return(BT_OK);
     }
+    
     return(BT_NOT_OK);
 }
 
 bt_states setJustWorks(void){
-    const uint8_t CMD_SET_REQ_JW[7] = {0x02, 0x11, 0x02, 0x00, 0x0C, 0x02, 0x1F};
-    for (int i = 0; i<7; i++) {        
-        send_uart2(CMD_SET_REQ_JW[i]);
-    }
+    bt_states temp;
 
-    timeOut = timeOutBegin(&count,100,&wrapped);
-    while(!processMsgBluetooth(&b_inBuffer2, 0x51)){
-       if(timeOutCheck(&timeOut)) break;
+    const uint8_t CMD_SET_REQ_JW[7] = {0x02, 0x11, 0x02, 0x00, 0x0C, 0x02, 0x1F};
+
+    temp = CMD_REQ(CMD_SET_REQ_JW,7,100);
+    if (temp != BT_OK) return(temp);
+    
+    if(msgData2[4] == 0x00){ //success
+        temp = CMD_RSP_IND(0x41,100);
+        if(msgData2[2] == 0x01) return(BT_OK);  
     }
     
-    while(b_inBuffer2.msgCount>0){ 
-        getMsg(&b_inBuffer2, msgData2,&msgDataSize2);
-        if(msgData2[1] == 0x51 && msgData2[2] == 0x01){// got a BTMAC response
-            // wait for ready message
-            while(!processMsgBluetooth(&b_inBuffer2, 0x41)){
-                if(timeOutCheck(&timeOut)) break;   
-            }
-            while(b_inBuffer2.msgCount>0){ 
-                getMsg(&b_inBuffer2, msgData2,&msgDataSize2);
-                if(msgData2[1] == 0x51 && msgData2[2] == 0x01){
-                    return(BT_OK);
-                }
-            }
-        }
+    return(BT_NOT_OK);
+}
+
+bt_states disconnect_BT(void){
+    bt_states temp;
+
+    const uint8_t CMD_DISCONNECT_REQ[5] = {0x02,0x07,0x00,0x00,0x05};
+
+    temp = CMD_REQ(CMD_DISCONNECT_REQ,5,100);
+    if (temp != BT_OK) return(temp);
+    
+    if(msgData2[4] == 0x00){// disconnected 
+        return(BT_NOT_CONNECTED);
+    }
+
+    return(BT_NOT_OK);
+}
+
+
+
+bt_states rename_BT(uint8_t* name, uint8_t nameSize){
+    // name Size MUST be 5
+    if(nameSize != 5) return(BT_NOT_OK);
+
+    bt_states temp; 
+
+    // build the message
+    uint8_t CMD_SET_REQ_RENAME[11] = {0x02, 0x11, 0x06, 0x00, 0x02, name[0], name[1], name[2], name[3], name[4],0};
+    CMD_SET_REQ_RENAME[10] = calcCS_array(CMD_SET_REQ_RENAME,10); // sets the name of the module
+
+    //send the message
+    temp = CMD_REQ(CMD_SET_REQ_RENAME,10,100);
+    if (temp != BT_OK) return(temp);
+
+    // check rename is success
+    const uint8_t CMD_GET_REQ_NAME[6] = {0x02,0x10,0x01,0x00,0x02,0x11}; // Requests name from module
+    temp = CMD_REQ(CMD_GET_REQ_NAME,6,100);
+    if (temp != BT_OK) return(temp);
+   
+    if(!memcmp(&msgData2[5],name,5)){
+        return(BT_OK);
     }
     return(BT_NOT_OK);
 }
+
+
+void msgUpdate_BT(void){
+    // check outBuffer is correct.
+    const uint8_t msgStart[4] = {0x02, 0x04, 0x17, 0x00};
+    if(memcmp(outBuffer2,msgStart,4)){
+        msgInit_BT(); // the outBuffer2 has old data from other commands re-initialize it.
+    }
+
+    outBuffer2[9] = (Timer & 0xFF00) >> 8;   // the voltage level read at 100Hz
+    outBuffer2[10] = (Timer & 0x00FF);
+    for (uint8_t j=0; j<ActiveSens; j++){
+        uint8_t aux = 7*j;
+        outBuffer2[11+aux] = MotorsActivation[j];     // For each sensor/motor we want to send its state of activation
+        outBuffer2[12+aux] = (iPVDFFilteredBuffer[StartDetection][j] & 0xFF00) >> 8;   // the voltage level read at 100Hz
+        outBuffer2[13+aux] = (iPVDFFilteredBuffer[StartDetection][j] & 0x00FF);
+    }
+    outBuffer2[27] = calcCS_array(outBuffer2,27);
+    b_outBuffer2.head = 0;
+    b_outBuffer2.tail = 0;
+    b_outBuffer2.isEmpty = false;
+    b_outBuffer2.isFull  = true;
+}
+
 
 void msgInit_BT(void) { 
     // follows CMD_DATA_REQ in proteusIII manual
@@ -981,44 +1031,59 @@ void msgInit_BT(void) {
     outBuffer2[27] = calcCS_array(outBuffer2,27);
 }
 
-void msgUpdate_BT(void){
-    // check outBuffer is correct.
-    const uint8_t msgStart[4] = {0x02, 0x04, 0x17, 0x00};
-    if(memcmp(outBuffer2,msgStart,4)){
-        msgInit_BT(); // the outBuffer2 has old data from other commands
-    }
+
+bt_states CMD_REQ(const uint8_t *msg, uint8_t msgSize, uint16_t waitTime){
+
+    // An interface that send CMD_XXX_REQ msg and waits for recieve confirmation CMD_XXX_CNF from the bluetooth module
+
+    // - if no correct confimraiton response is receieved within waitTime it returns BT_TIMEOUT
+    // - if correct confirmaiton response is recieved it returns BT_OK and stores the message in msgData2
+
+    // a confirmaiton response is a response that has the second byte equal to msg[1]|0x40 and status byte is 0x00 -> check manual
+    // else it returns BT_NOT_OK
     
-    outBuffer2[9] = (Timer & 0xFF00) >> 8;   // the voltage level read at 100Hz
-    outBuffer2[10] = (Timer & 0x00FF);
-    for (uint8_t j=0; j<ActiveSens; j++){
-        uint8_t aux = 7*j;
-        outBuffer2[11+aux] = MotorsActivation[j];     // For each sensor/motor we want to send its state of activation
-        outBuffer2[12+aux] = (iPVDFFilteredBuffer[StartDetection][j] & 0xFF00) >> 8;   // the voltage level read at 100Hz
-        outBuffer2[13+aux] = (iPVDFFilteredBuffer[StartDetection][j] & 0x00FF);
+    // send message
+    for (int i = 0; i<msgSize; i++) {
+       send_uart2(msg[i]);
     }
-    outBuffer2[27] = calcCS_array(outBuffer2,27);
-    b_outBuffer2.head = 0;
-    b_outBuffer2.tail = 0;
-    b_outBuffer2.isEmpty = false;
-    b_outBuffer2.isFull  = true;
+
+
+    // wait for confirmation of reciept 
+    timeOut = timeOutBegin(&count,waitTime,&wrapped);
+    while(!processMsgBluetooth(&b_inBuffer2, msg[1]|0x40)){
+       if(timeOutCheck(&timeOut)) return(BT_TIMEOUT);
+    }
+
+    // return OK when message is recieved and moved to msgData2
+    while(b_inBuffer2.msgCount>0){ 
+        getMsg(&b_inBuffer2, msgData2,&msgDataSize2);
+        if(msgData2[1]==(msg[1]|0x40)){
+            if(msgData2[4] == 0x00){
+                return(BT_OK); // status byte is 0x00 recieved and processed
+            }
+            else{
+                return(BT_STATUS_NOT_OK);  // break out
+            }
+        }
+    }
+
+    return(BT_NOT_OK);
 }
 
-bt_states disconnect_BT(void){
-     const uint8_t CMD_DISCONNECT_REQ[5] = {0x02,0x07,0x00,0x00,0x05};
-     for (int i = 0; i<5; i++) {
-      send_uart2(CMD_DISCONNECT_REQ[i]);
+bt_states CMD_RSP_IND(const uint8_t flag,  uint16_t waitTime){
+    // an interface that waits for a message with the second byte equal to flag
+    // used for commands that end with CMD_XXX_IND or CND_XXX_RSP -> check manual
+
+    timeOut = timeOutBegin(&count,waitTime,&wrapped);
+    while(!processMsgBluetooth(&b_inBuffer2,flag)){
+       if(timeOutCheck(&timeOut)) return(BT_TIMEOUT);
     }
-    
-    timeOut = timeOutBegin(&count,100,&wrapped);
-    while(!processMsgBluetooth(&b_inBuffer2, 0x47)){
-        if(timeOutCheck(&timeOut)) return(BT_TIMEOUT);
-    }
-    
-    while(b_inBuffer2.msgCount > 0 ){
+
+    while(b_inBuffer2.msgCount>0){
         getMsg(&b_inBuffer2, msgData2,&msgDataSize2);
-        if(msgData2[1] == 0x47 && msgData2[4] == 0x00){// disconnected 
-            return(BT_NOT_CONNECTED);
-        }
-        if(timeOutCheck(&timeOut)) return(BT_TIMEOUT);
+        if(msgData2[1]==flag) return(BT_OK);
     }
+
+    return(BT_NOT_OK);
+
 }
