@@ -655,6 +655,13 @@ void ReadCmd(uint8_t *msgHolder){
         case 8: // send data bluetooth
             StartBT = msgHolder[shift+1];
             break;
+        case 9: // connect/disconnect BT
+            if(msgHolder[shift+1] == 0x00){
+                disconnect_BT();
+            }else{
+                connect_BT(BTMAC_computer);
+            }
+            break;
         case 0x0A: // connect to new BTMAC 
             if(msgHolder[shift-1] == 0xC){ // check BTMAC valid
                 if(BT_CONNECTED) bt_state = disconnect_BT();
