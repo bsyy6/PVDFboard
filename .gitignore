@@ -34,3 +34,4 @@ disassembly/*
 *.map
 PVDFboard_3.0.X/.generated_files/flags/default/2df9a73862607070f08f8c1dd638774e3ce0b7d3
 /testingIdead
+.vscode/**
