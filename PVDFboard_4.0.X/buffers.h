@@ -37,6 +37,8 @@ Buffer initBuffer(void *array, uint8_t arraySize);
 // basic buffer operations
 void enq(void *data, volatile Buffer *buffer); // add data
 void deq(void *data, volatile Buffer *buffer); // read data
+void getMsg(volatile Buffer *buffer, uint8_t* msgOut, uint8_t* msgSize); // gets the oldest message found in buffer
+
 void nEnq(void *data, volatile Buffer *buffer, uint8_t size); // add n data
 void nDeq(void *data, volatile Buffer *buffer, uint8_t size); // read n data
 void reset(volatile Buffer *buffer); // reset buffer
@@ -53,5 +55,4 @@ void delRange(volatile Buffer *buffer, uint8_t delStart, uint8_t delEnd, bool sa
 bool findFlag(volatile Buffer *buffer, void *data); // find a flag in buffer
 void deqMsg(volatile Buffer *buffer); // unblocks from start to end
 void enqMsg(volatile Buffer *buffer); // blocks from bookmark to current tail
-void getMsg(volatile Buffer *buffer, uint8_t* msgOut, uint8_t* msgSize); // gets the oldest message found in buffer
 #endif

@@ -14,7 +14,7 @@
  * UART 1 baudrate 115200 8N1   [PC]
  * UART 2 baudrate 115200 8N1   [Bluetooth]
  * ADC reading 2 channels at 1KHz AN0 and AN13
- * ADC signal filtered with a 4th order Butterworth LP filter
+ * ADC signal filtered with a 2nd order Butterworth LP filter
  * 
  * [Fcy] = Fosc/2 = 32Mhz/2 = 16MHz [PPL x4 activated and no prescalers]
  * [Tcy] = 62.5ns
@@ -178,9 +178,6 @@ volatile Buffer b_inBuffer2;
 
 uint8_t outBuffer2[28];
 volatile Buffer b_outBuffer2;
-
-bool flag_BT_reset = false;
-unsigned char BT_in = 0;
 
 uint8_t BTMAC_computer[6] = {0x5D,0xE4,0x32,0xDA,0x18,0x00}; // Default: last device connected and saved in EEPROM
                                                              // can be set by user using UART command 0xA1 0xA2 0x0B 0x10 BTMAC[6] 0xA2 0xA1
@@ -390,9 +387,7 @@ int main(int argc, char** argv){
     }
 
     msgInit_UART(); // sets the default values in output message
-    msgInit_BT();
-    send_uart(0xFF);
-    send_uart(0xF2);  
+    msgInit_BT(); 
     while (1){
         copyBuffer(w);
         if (icheckEvent==1){
@@ -442,7 +437,7 @@ int main(int argc, char** argv){
         processMsgBluetooth(&b_inBuffer2, 0x84);
         
         if(b_inBuffer1.msgCount >= 1){
-            getMsg(&b_inBuffer1, msgData1,&msgDataSize1);
+            getMsg(&b_inBuffer1, msgData1, &msgDataSize1);
             ReadCmd(msgData1);
         }
         
@@ -452,7 +447,7 @@ int main(int argc, char** argv){
         }
         
         
-        if (SendData==1 && b_outBuffer1.isEmpty ){
+        if (SendData==1 && b_outBuffer1.isEmpty && b_outBuffer2.isEmpty){
             // every 100Hz
             SendData=0;
             if(StartRX) msgUpdate_UART(); // 
@@ -461,18 +456,16 @@ int main(int argc, char** argv){
         
         // check if there are bytes to send.
 
-        timeOut = timeOutBegin(&count,5,&wrapped);
+        
         while(!b_outBuffer1.isEmpty){
             deq(&tempByte, &b_outBuffer1);
             send_uart(tempByte);
-           if(timeOutCheck(&timeOut)) break;
         }
         
-        timeOut = timeOutBegin(&count,5,&wrapped);
+        
         while(!b_outBuffer2.isEmpty){
             deq(&tempByte, &b_outBuffer2);
             send_uart2(tempByte);
-            if(timeOutCheck(&timeOut)) break;
         }
         
         // this is non-blocking LED blink.
@@ -666,9 +659,9 @@ void ReadCmd(uint8_t *msgHolder){
             if(msgHolder[shift-1] == 0xC){ // check BTMAC valid
                 if(BT_CONNECTED) bt_state = disconnect_BT();
                 StartBT = 0;
-                bt_state= BT_CONNECTED; //connect_BT(&msgHolder[shift+1]);
+                bt_state= connect_BT(&msgHolder[shift+1]);
                 if(bt_state == BT_CONNECTED){
-                    StartBT = 0;
+                    StartBT = 1;
                     memcpy(&BTMAC_computer,&msgHolder[shift+1],6);
                     
                     // to-do update eeprom too
