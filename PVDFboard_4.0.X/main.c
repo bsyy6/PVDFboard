@@ -595,7 +595,7 @@ void ReadCmd(uint8_t *msgHolder){
        return;
     }
     
-    switch (msgHolder[shift+0]){
+    switch (msgHolder[shift]){
         case 0: // check Communication
             checkCOM = 1; //TX one message to confirm that is the correct port
             break;
@@ -677,7 +677,7 @@ void ReadCmd(uint8_t *msgHolder){
             }
             break;
         case 0x0B: // set name
-            if(msgHolder[shift-1] == 0xB){ // check BTMAC valid
+            if(msgHolder[shift-1] == 0xB){ // check name length is 5
                 rename_BT(&msgHolder[shift+1],5);
             }
             break;
@@ -956,9 +956,7 @@ bt_states disconnect_BT(void){
 
 
 bt_states rename_BT(uint8_t* name, uint8_t nameSize){
-    // name Size MUST be 5
-    if(nameSize != 5) return(BT_NOT_OK);
-
+    
     bt_states temp; 
 
     // build the message
@@ -966,7 +964,7 @@ bt_states rename_BT(uint8_t* name, uint8_t nameSize){
     CMD_SET_REQ_RENAME[10] = calcCS_array(CMD_SET_REQ_RENAME,10); // sets the name of the module
 
     //send the message
-    temp = CMD_REQ(CMD_SET_REQ_RENAME,10,100);
+    temp = CMD_REQ(CMD_SET_REQ_RENAME,11,100);
     if (temp != BT_OK) return(temp);
 
     // check rename is success
