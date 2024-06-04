@@ -8,6 +8,7 @@
       <itemPath>msgs.h</itemPath>
       <itemPath>setup.h</itemPath>
       <itemPath>timeout.h</itemPath>
+      <itemPath>bluetooth.h</itemPath>
     </logicalFolder>
     <logicalFolder name="ExternalFiles"
                    displayName="Important Files"
@@ -27,6 +28,7 @@
       <itemPath>setup.c</itemPath>
       <itemPath>config_bits.c</itemPath>
       <itemPath>timeout.c</itemPath>
+      <itemPath>bluetooth.c</itemPath>
     </logicalFolder>
     <itemPath>detection algorithms.txt</itemPath>
   </logicalFolder>

@@ -1,7 +1,4 @@
-#include <stdbool.h>
-#include <limits.h>
 #include "timeout.h"
-
 
 timeOutObj timeOutBegin(uint16_t* currentTimePtr,uint16_t delay, bool* wrapped){
     // returns a timoutObj

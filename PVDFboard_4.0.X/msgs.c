@@ -5,7 +5,6 @@
 */
 
 #include "msgs.h"
-#include "buffers.h"
 
 void processMsg(volatile Buffer *raw_buffer){
     
