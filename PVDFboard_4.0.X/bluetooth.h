@@ -1,78 +1,36 @@
-/* Microchip Technology Inc. and its subsidiaries.  You may use this software 
- * and any derivatives exclusively with Microchip products. 
- * 
- * THIS SOFTWARE IS SUPPLIED BY MICROCHIP "AS IS".  NO WARRANTIES, WHETHER 
- * EXPRESS, IMPLIED OR STATUTORY, APPLY TO THIS SOFTWARE, INCLUDING ANY IMPLIED 
- * WARRANTIES OF NON-INFRINGEMENT, MERCHANTABILITY, AND FITNESS FOR A 
- * PARTICULAR PURPOSE, OR ITS INTERACTION WITH MICROCHIP PRODUCTS, COMBINATION 
- * WITH ANY OTHER PRODUCTS, OR USE IN ANY APPLICATION. 
- *
- * IN NO EVENT WILL MICROCHIP BE LIABLE FOR ANY INDIRECT, SPECIAL, PUNITIVE, 
- * INCIDENTAL OR CONSEQUENTIAL LOSS, DAMAGE, COST OR EXPENSE OF ANY KIND 
- * WHATSOEVER RELATED TO THE SOFTWARE, HOWEVER CAUSED, EVEN IF MICROCHIP HAS 
- * BEEN ADVISED OF THE POSSIBILITY OR THE DAMAGES ARE FORESEEABLE.  TO THE 
- * FULLEST EXTENT ALLOWED BY LAW, MICROCHIP'S TOTAL LIABILITY ON ALL CLAIMS 
- * IN ANY WAY RELATED TO THIS SOFTWARE WILL NOT EXCEED THE AMOUNT OF FEES, IF 
- * ANY, THAT YOU HAVE PAID DIRECTLY TO MICROCHIP FOR THIS SOFTWARE.
- *
- * MICROCHIP PROVIDES THIS SOFTWARE CONDITIONALLY UPON YOUR ACCEPTANCE OF THESE 
- * TERMS. 
- */
-
-/* 
- * File:   
- * Author: 
- * Comments:
- * Revision history: 
- */
-
-// This is a guard condition so that contents of this file are not included
-// more than once.  
-#ifndef XC_HEADER_TEMPLATE_H
-#define	XC_HEADER_TEMPLATE_H
+#ifndef BLUETOOTH_H
+#define	BLUETOOTH_H
 
 #include <xc.h> // include processor files - each processor file is guarded.  
+#include "timeout.h"
+#include "setup.h"
+#include "msgs.h"
 
-// TODO Insert appropriate #include <>
 
-// TODO Insert C++ class definitions if appropriate
+typedef enum {
+    BT_POWER_OFF,       // 0
+    BT_POWER_ON,        // 1
+    BT_CONNECTED,       // 2
+    BT_NOT_CONNECTED,   // 3
+    BT_OK,              // 4
+    BT_NOT_OK,          // 5
+    BT_TIMEOUT,         // 6
+    BT_STATUS_NOT_OK    // 7  A message response is received but says it failed to execute the command
+} bt_states;
 
-// TODO Insert declarations
 
-// Comment a function and leverage automatic documentation with slash star star
-/**
-    <p><b>Function prototype:</b></p>
-  
-    <p><b>Summary:</b></p>
+bt_states init_BT();
+bt_states connect_BT(uint8_t BTMAC[6]);
+bt_states whoAmI(uint8_t *BTMAC);
+bt_states setJustWorks(void);
+bt_states disconnect_BT(void);
+bt_states rename_BT(uint8_t* name, uint8_t nameSize);
+bt_states setConnectionTiming_BT(const uint8_t val);
+void msgUpdate_BT(void);
+void msgInit_BT(void);
+bt_states CMD_REQ(const uint8_t *msg, uint8_t msgSize, uint16_t waitTime);
+bt_states CMD_RSP_IND(const uint8_t flag,  uint16_t waitTime);
+void communicateError_BT(bt_states bs,const uint8_t *msg, uint8_t msgSize);
 
-    <p><b>Description:</b></p>
-
-    <p><b>Precondition:</b></p>
-
-    <p><b>Parameters:</b></p>
-
-    <p><b>Returns:</b></p>
-
-    <p><b>Example:</b></p>
-    <code>
- 
-    </code>
-
-    <p><b>Remarks:</b></p>
- */
-// TODO Insert declarations or function prototypes (right here) to leverage 
-// live documentation
-
-#ifdef	__cplusplus
-extern "C" {
-#endif /* __cplusplus */
-
-    // TODO If C++ is being used, regular C code needs function names to have C 
-    // linkage so the functions can be used by the c code. 
-
-#ifdef	__cplusplus
-}
-#endif /* __cplusplus */
-
-#endif	/* XC_HEADER_TEMPLATE_H */
+#endif	/* BLUETOOTH_H */
 
