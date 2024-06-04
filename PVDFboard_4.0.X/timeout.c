@@ -7,7 +7,7 @@ timeOutObj timeOutBegin(uint16_t* currentTimePtr,uint16_t delay, bool* wrapped){
     // returns a timoutObj
     timeOutObj to;
     
-    const uint16_t currentTime_max = UINT16_MAX; // change if type  of currentTime is changed
+    const uint16_t currentTime_max = 60000; // change if type  of currentTime is changed
     to.currentTimePtr = currentTimePtr;
     to.ttimeOut = (*currentTimePtr + delay) % (currentTime_max) + 1;
     
