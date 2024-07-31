@@ -98,10 +98,8 @@ void processMsg(volatile Buffer *raw_buffer){
         if(state == ERROR){
             if(findNextMsgStart(raw_buffer)){
                 jumpToMsgStart(raw_buffer);
-                delRange(raw_buffer, 0, raw_buffer->tail-1, true);
             }else{
                 removeMsgStart(raw_buffer); // free up the buffer for overwrites.
-                delRange(raw_buffer, 0, raw_buffer->tail-1, true);
             }
             state = START1;
         }   
@@ -207,10 +205,8 @@ bool processMsgBluetooth(volatile Buffer *raw_buffer, uint8_t secondStartFlag){
         if(state == ERROR){
             if(findNextMsgStart(raw_buffer)){
                 jumpToMsgStart(raw_buffer);
-                delRange(raw_buffer, 0, raw_buffer->tail-1, true);
             }else{
                 removeMsgStart(raw_buffer); // free up the buffer for overwrites.
-                delRange(raw_buffer, 0, raw_buffer->tail-1, true);
             }
             state = START1;
         }
