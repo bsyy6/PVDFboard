@@ -34,20 +34,15 @@ bt_states connect_BT(uint8_t BTMAC[6]){
 
     uint8_t msg[11] = {0x02,0x06,0x06,0x00,BTMAC[0],BTMAC[1],BTMAC[2],BTMAC[3],BTMAC[4],BTMAC[5],0x00};
     msg[10] = calcCS_array(msg,10);
-    send_uart(0xE0);
     temp = CMD_REQ(msg,11,2000);
-    if(temp != BT_OK) return(temp);
-    send_uart(0xE1);    
+    if(temp != BT_OK) return(temp);   
     temp = CMD_RSP_IND(0x86,3000); // CMD_CONNECT_IND
     if(temp != BT_OK) return(temp);
-    send_uart(0xE2);
     temp = CMD_RSP_IND(0x88,5000); // CMD_CONNECT_IND
     if(temp != BT_OK) return(temp);
-    send_uart(0xE3);
 
     temp = CMD_RSP_IND(0xC6,3000); // CMD_CONNECT_IND
     if(temp != BT_OK) return(temp);
-    send_uart(0xE4);
 
     if(!memcmp(&msgData2[5],BTMAC,6)) return(BT_CONNECTED);
 
