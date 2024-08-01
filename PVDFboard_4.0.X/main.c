@@ -169,7 +169,7 @@ void msgUpdate_BT(void);
 
 // Bluetooth
 
-unsigned char StartBT = 0;
+unsigned char StartBT = 1;
 
 uint8_t inBuffer2[50]; // uart2 buffer
 uint8_t msgData2[35];  // extracted msgs go here
@@ -179,7 +179,7 @@ volatile Buffer b_inBuffer2;
 uint8_t outBuffer2[28];
 volatile Buffer b_outBuffer2;
 
-uint8_t BTMAC_computer[6] = {0x5D,0xE4,0x32,0xDA,0x18,0x00}; // Default: last device connected and saved in EEPROM
+uint8_t BTMAC_computer[6] = {0x94,0x51,0x32,0xDA,0x18,0x00}; // Default: last device connected and saved in EEPROM
                                                              // can be set by user using UART command 0xA1 0xA2 0x0B 0x10 BTMAC[6] 0xA2 0xA1
 uint8_t BTMAC_pcb[6]; // gets filled upon when calling whoAmI() function
 uint8_t tempByte;
@@ -361,11 +361,14 @@ int main(int argc, char** argv){
     bt_state = init_BT();
     if(bt_state == BT_POWER_ON){
         bt_state = whoAmI(BTMAC_pcb);
+        setJustWorks();
         setConnectionTiming_BT(1);
         bt_state = CMD_RSP_IND(0x41,500);
         bt_state = connect_BT(BTMAC_computer);
     }
     communicateError_BT(bt_state,NULL,0);
+  
+  
     msgInit_UART(); // sets the default values in output message
     msgInit_BT(); 
     while (1){
