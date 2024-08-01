@@ -1,4 +1,3 @@
-
 /*
  * File:   MainPVDF.c
  * Author: Eleonora Vendrame
@@ -52,7 +51,7 @@
 
 
 // DEFINE PARAMETERS
-#define wLenght        10   // lunghezza del buffer di acquisizione dell'adc, acquisendo 1 campione ogni 1 ms, sarï¿½ pieno dopo 10 ms visto che legge un campione per sensore 
+#define wLenght        10   // lunghezza del buffer di acquisizione dell'ADC, acquisendo 1 campione ogni 1 ms, sarà pieno dopo 10 ms visto che legge un campione per sensore 
 #define windowLenght   10   // Event detection window length, 10ms
 #define nSensors       2    // number of sensors to read
 #define ADCBufferLength 20    // ADC Buffer length, 20ms 
@@ -69,7 +68,7 @@ int __attribute__ ((space(eedata))) eeThresholdDerR [nSensors] = {-35,-35};  // 
 
 unsigned int __attribute__ ((space(eedata))) eeMotFlag = 1;  // Flag for motors on[1]/off[0]
 unsigned int __attribute__ ((space(eedata))) eeSendDer = 0;
-unsigned int __attribute__ ((space(eedata))) eeStimTime = 150; // 0x32
+unsigned int __attribute__ ((space(eedata))) eeStimTime = 150; // 0x96
 
 // EEPROM data addresses
 
@@ -99,8 +98,7 @@ const unsigned int count_max = 65000;    // 65 seconds
 unsigned int CountVibr1 = 0;
 unsigned int CountVibr2 = 0;
 unsigned int tRefractory[nSensors] = {0};
-unsigned int bluetime = 0;
-unsigned int redtime = 0;
+unsigned int ledtime = 0;
 unsigned int Timer = 0;                             //Variable to send to SW as timestamp (100Hz)
 
 //ADC
@@ -132,6 +130,7 @@ unsigned int LP_filter(unsigned int x0);
 unsigned char StartDetection = 0;
 void eventDetection(int s);
 void activateMotor(uint8_t s);
+void configure_sequence_MUXA(char s1, char s2);
 
 // DESC FEEDBACK
 unsigned char iCountEventT[nSensors] = {0};            // Counter for contact events
@@ -152,13 +151,13 @@ void ReadCmd(uint8_t* msgHolder);
 // UART 
 unsigned char StartRX = 0;
 
-uint8_t inBuffer1[20];    // uart1 buffer
+uint8_t inBuffer1[20];    // uart1 input buffer
 
 uint8_t msgData1[20];     // extracted msgs go here.
 uint8_t msgDataSize1 = 0; // the size of data in msgData
 volatile Buffer b_inBuffer1; 
 
-uint8_t outBuffer1[23];
+uint8_t outBuffer1[23];  // uart1 output buffer
 volatile Buffer b_outBuffer1;
 
 void msgInit_UART(void);
@@ -168,8 +167,7 @@ void msgUpdate_BT(void);
 
 
 // Bluetooth
-
-unsigned char StartBT = 0;
+unsigned char StartBT = 1;
 
 uint8_t inBuffer2[50]; // uart2 buffer
 uint8_t msgData2[35];  // extracted msgs go here
@@ -179,8 +177,9 @@ volatile Buffer b_inBuffer2;
 uint8_t outBuffer2[28];
 volatile Buffer b_outBuffer2;
 
-uint8_t BTMAC_computer[6] = {0x5D,0xE4,0x32,0xDA,0x18,0x00}; // Default: last device connected and saved in EEPROM
+uint8_t BTMAC_computer[6] = {0x94,0x51,0x32,0xDA,0x18,0x00}; // Default: last device connected and saved in EEPROM
                                                              // can be set by user using UART command 0xA1 0xA2 0x0B 0x10 BTMAC[6] 0xA2 0xA1
+
 uint8_t BTMAC_pcb[6]; // gets filled upon when calling whoAmI() function
 uint8_t tempByte;
 
@@ -189,11 +188,8 @@ timeOutObj timeOut;
 
 
 // LED
-unsigned char circleClrs = 0;
 const char colors[] = {'R', 'G', 'B', 'Y', 'C', 'M', 'W','0'};
 unsigned char  colorCounter = 0;
-unsigned int colorTime = 900; 
-volatile bool LED_switched = false;
 volatile bool blockLED = false;
 volatile bool LED_R_B = true;
 volatile bool wrapped = false;
@@ -209,25 +205,24 @@ void __attribute__((__interrupt__, no_auto_psv)) _T1Interrupt(void){
     
     
     
-    if(count%1000 == 0){ // every second
-        if(LED_R_B){
-            set_LED('R');
-            LED_R_B = false;
-        }else{
-            set_LED('B');
-            LED_R_B = true;
-        }
-    }
+//    if(count%1000 == 0){ // every second
+//        if(LED_R_B){
+//            set_LED('R');
+//            LED_R_B = false;
+//        }else{
+//            set_LED('B');
+//            LED_R_B = true;
+//        }
+//    }
     
-    LED_switched = false;
     
     CountVibr1++;
     CountVibr2++;
 
-    bluetime++;
-    redtime++;
+
+    ledtime++;
     
-    if (count%100 == 0) //makes it 100Hz 
+    if (count%10 == 0) //makes it 100Hz 
     {   
         if(count == count_max){ // overflow
             count = 0;
@@ -239,6 +234,32 @@ void __attribute__((__interrupt__, no_auto_psv)) _T1Interrupt(void){
     
     count++; 
     
+    p = 0;
+    IFS0bits.AD1IF = 0;
+    IEC0bits.AD1IE = 1;  // Enable the interrupts while reading all five sensors
+
+    //for (i=0; i<ActiveSens/2; i++){      // to read two sensors at a time
+
+    configure_sequence_MUXA(p,p+1);   // Create the sequence of channels for MUXA to read
+    AD1CON1bits.ASAM = 1;      // Start the sampling of the channels in sequence 
+    AD1CON1bits.ADON = 1;      // We can only activate the ADC here because to change the settings it must be off 
+    while (!IFS0bits.AD1IF){} // We wait for the reading to finish
+    AD1CON1bits.ADON = 0;
+    IFS0bits.AD1IF = 0;
+    PVDFsensor[p] = ADC1BUF0;         // Read the AN10 channel conversion result
+    iPVDFFiltered[w][p] = LP_filter(PVDFsensor[p]);    // filtro i dati Sensore p e riempio il buffer 
+    p++;
+    // Fill the vector with data from ADC buffer 2
+    PVDFsensor[p] = ADC1BUF1;         // Read the AN13 channel conversion result
+    iPVDFFiltered[w][p] = LP_filter(PVDFsensor[p]);    // filtro i dati Sensore p e riempio il buffer 
+    p++;
+
+    w++;
+    if(w==ADCBufferLength){       //    w=(w+1)%ADCBufferLength;
+        w=0;
+        CircledBuffer = 1;
+    }
+
     unsigned char q ; 
     for (q=0; q<ActiveSens; q++)
     {
@@ -249,29 +270,21 @@ void __attribute__((__interrupt__, no_auto_psv)) _T1Interrupt(void){
     AD1CON1bits.SAMP = 1; // samples at 1kHz
 	
     IFS0bits.T1IF = 0; 
-   
+    
 }
 
 void __attribute__((__interrupt__)) _ADC1Interrupt(void){
     
-    PVDFsensor[0] = ADC1BUF0;         // Read the AN9 channel conversion result
-    iPVDFFiltered[w][0] = LP_filter(PVDFsensor[0]);    // filtro i dati Sensore p e riempio il buffer 
-    // Fill the vector with data from ADC buffer 2
-    PVDFsensor[1] = ADC1BUF1;         // Read the AN15 channel conversion result
-    iPVDFFiltered[w][1] = LP_filter(PVDFsensor[1]);    // filtro i dati Sensore p e riempio il buffer 
     
-    w++;
-    if(w==ADCBufferLength){       //    w=(w+1)%ADCBufferLength;
-        w=0;
-        CircledBuffer = 1;
-    }
     
     IFS0bits.AD1IF = 0;
 }
 
 // UART1 interrupts
 void __attribute__((__interrupt__, no_auto_psv)) _U1TXInterrupt(void){
-    while(!U1STAbits.TRMT){}
+    
+    while(!U1STAbits.TRMT){} //TRMT bit is the Transmit Shift Register Empty bit that is = 1 when the register is empty
+                             //This means that while it is 0 it has data to send
     IFS0bits.U1TXIF = 0;  // Clear TX Interrupt flag
 }
 
@@ -307,11 +320,18 @@ void __attribute__((__interrupt__, no_auto_psv)) _U2RXInterrupt(void){
     IFS1bits.U2RXIF = 0;                // Clear TX Interrupt flag
 }
 
+//void __attribute__((__interrupt__, no_auto_psv)) _CNInterrupt(void) { //INSERT HERE WHAT WE WANT TO DO WITH THE RESET BUTTON (SW2)
+//
+//    StartBT=0;
+//    StartRX=1;
+//    IFS1bits.CNIF = 0;
+//}
+
 int main(int argc, char** argv){
     // Initialization of micro and peripheral     
 
     init_mcu();
-    // uart 1 buffers
+    // Uart 1 buffers
     b_inBuffer1 = initBuffer(inBuffer1,sizeof(inBuffer1)/sizeof(inBuffer1[0]));
     b_outBuffer1 = initBuffer(outBuffer1,sizeof(outBuffer1)/sizeof(outBuffer1[0]));
         
@@ -327,7 +347,6 @@ int main(int argc, char** argv){
     tbloffset_thrderT = __builtin_tbloffset(&eeThresholdDerT[0]);
     tbloffset_thrderR = __builtin_tbloffset(&eeThresholdDerR[0]);
     tbloffset_nSens = __builtin_tbloffset(&eeUsedSensors);
-    tbloffset_SendDer = __builtin_tbloffset(&eeSendDer);
     tbloffset_StimTime = __builtin_tbloffset(&eeStimTime);
     tbloffset_MotFlag = __builtin_tbloffset(&eeMotFlag);
     
@@ -349,25 +368,30 @@ int main(int argc, char** argv){
     tmr1_init();
     init_ADC();
     init_uart();
+    //resetbutton_init();
 	// Timer init
 	TMR1_INT_ENABLE = 1;            // Enable interrupt of Timer1
     TMR1_ENABLE = 1;                // Enable Timer1
      
-    IEC0bits.U1TXIE = 1;
+    //IEC0bits.U1TXIE = 1;
     
-    circleClrs = 1;
-    colorTime = 100;
-    
+    set_LED('R');
+
     bt_state = init_BT();
     if(bt_state == BT_POWER_ON){
+        bt_state = setJustWorks();
         bt_state = whoAmI(BTMAC_pcb);
         setConnectionTiming_BT(1);
-        bt_state = CMD_RSP_IND(0x41,500);
-        bt_state = connect_BT(BTMAC_computer);
+        bt_state = CMD_RSP_IND(0x41,500); 
+        //bt_state = connect_BT(BTMAC_computer);
     }
     communicateError_BT(bt_state,NULL,0);
+    
     msgInit_UART(); // sets the default values in output message
     msgInit_BT(); 
+    
+    set_LED('G');
+    
     while (1){
         copyBuffer(w);
         if (icheckEvent==1){
@@ -379,15 +403,18 @@ int main(int argc, char** argv){
         }
         
         // CountVibr1 and 2 are in msec (frequency of timer1)
-        if (CountVibr1 > StimTime && MotFlag )  {            
+        if (CountVibr1 > StimTime )  {            
             MOT1 = 0;
             MotorsActivation[0] = 0;
         }
-        if (CountVibr2 > StimTime && MotFlag)  {
+        if (CountVibr2 > StimTime )  {
             MOT2 = 0;
             MotorsActivation[1] = 0;
         }
         
+        if (ledtime>tLed_max){
+            set_LED('G');
+        }
         
         //--- Debugging tools
         // [1] mimic bluetooth interface on uart1
@@ -414,7 +441,22 @@ int main(int argc, char** argv){
         
         // check if valid messages are recieved 
         processMsg(&b_inBuffer1);
-        processMsgBluetooth(&b_inBuffer2, 0x84);
+        
+        if (bt_state == BT_CONNECTED){
+            processMsgBluetooth(&b_inBuffer2, 0x84);
+        }
+        else {      //initial messages
+            if(processMsgBluetooth(&b_inBuffer2, 0x86)){    //connection ok    
+                bt_state = CMD_RSP_IND(0x88,5000); // CMD_CONNECT_IND
+                if(bt_state != BT_OK)  send_uart(0xE3);
+                bt_state = CMD_RSP_IND(0xC6,3000); // CMD_CONNECT_IND
+                if(bt_state != BT_OK)  send_uart(0xE4);
+                if(bt_state == BT_OK) {
+                    bt_state = BT_CONNECTED;
+                    communicateError_BT(bt_state,NULL,0);
+                }
+            }
+        }
         
         if(b_inBuffer1.msgCount >= 1){
             getMsg(&b_inBuffer1, msgData1, &msgDataSize1);
@@ -509,7 +551,7 @@ void msgInit_UART (void){
     outBuffer1[2] = (ActiveSens*7)+9;     // this should be the number of data sent through the usart
     outBuffer1[3] = MotFlag;
     outBuffer1[4] = StimTime;
-    // 5-9 are handled in ManageSerialTx
+    // 5-9 are handled in msgUpdate_UART (old ManageSerialTx)
     outBuffer1[10] = ThresholdT[0]/4;      // the threshold voltage sensor 1  - read from the EEPROM
     outBuffer1[11] = ThresholdR[0]/4;
     outBuffer1[12] = ThresholdDerT[0]/4;
@@ -569,89 +611,80 @@ void ReadCmd(uint8_t *msgHolder){
     }
     
     switch (msgHolder[shift]){
-        case 0: // check Communication
-            checkCOM = 1; //TX one message to confirm that is the correct port
-            break;
+        case 0: 
+            set_LED('M');
+            ledtime=0;
+        break;
         case 1: // set thresholds for thumb 
+            set_LED('Y');
+            ledtime=0;
             ThresholdT[0] = msgHolder[shift+1]*4;
             ThresholdR[0] = msgHolder[shift+2]*4;
-            ThresholdDerT[0]= msgHolder[shift+3]*4;
-            ThresholdDerR[0]= msgHolder[shift+4]*4;
+//            ThresholdDerT[0]= msgHolder[shift+3]*4;
+//            ThresholdDerR[0]= msgHolder[shift+4]*4;
             
             Save_EEPROM(ThresholdT[0],tbloffset_thrT);
             Save_EEPROM(ThresholdR[0],tbloffset_thrR);
-            Save_EEPROM(ThresholdDerT[0],tbloffset_thrderT);
-            Save_EEPROM((-1*ThresholdDerR[0]),tbloffset_thrderR);
+//            Save_EEPROM(ThresholdDerT[0],tbloffset_thrderT);
+//            Save_EEPROM((-1*ThresholdDerR[0]),tbloffset_thrderR);
            
             outBuffer1[10]= ThresholdT[0]/4;
             outBuffer1[11]= ThresholdR[0]/4;
-            outBuffer1[12]= ThresholdDerT[0]/4;
-            outBuffer1[13]= ThresholdDerR[0]/4;
+//            outBuffer1[12]= ThresholdDerT[0]/4;
+//            outBuffer1[13]= ThresholdDerR[0]/4;
             
             break;
         case 2:// set thresholds for index
+            set_LED('Y');
+            ledtime=0;
             ThresholdT[1]= msgHolder[shift+1]*4;
             ThresholdR[1]= msgHolder[shift+2]*4;
-            ThresholdDerT[1]= msgHolder[shift+3]*4;
-            ThresholdDerR[1]= msgHolder[shift+4]*4;
+//            ThresholdDerT[1]= msgHolder[shift+3]*4;
+//            ThresholdDerR[1]= msgHolder[shift+4]*4;
             
             Save_EEPROM(ThresholdT[1],tbloffset_thrT+2);
             Save_EEPROM(ThresholdR[1],tbloffset_thrR+2);
-            Save_EEPROM(ThresholdDerT[1],tbloffset_thrderT+2);
-            Save_EEPROM((-1*ThresholdDerR[1]),tbloffset_thrderR+2);
+//            Save_EEPROM(ThresholdDerT[1],tbloffset_thrderT+2);
+//            Save_EEPROM((-1*ThresholdDerR[1]),tbloffset_thrderR+2);
                         
             outBuffer1[17]= ThresholdT[1]/4;
             outBuffer1[18]= ThresholdR[1]/4;
-            outBuffer1[19]= ThresholdDerT[1]/4;
-            outBuffer1[20]= ThresholdDerR[1]/4;
+//            outBuffer1[19]= ThresholdDerT[1]/4;
+//            outBuffer1[20]= ThresholdDerR[1]/4;
             
             break;
         
-        case 6: // setting for feedback
-            if (msgHolder[1]<=nSensors){   //message is valid              
+        case 3: //to test the vibration time while calibrating the device
+            StimTime = msgHolder[shift+3]; 
+            MOT1=1;
+            MOT2=1;
+            set_LED('M');
+            ledtime = 0;
+            CountVibr1 = 0;
+            CountVibr2 = 0;
+            break;
+        case 6: // setting for feedback    
+                set_LED('Y');
+                ledtime=0;
                 ActiveSens = msgHolder[shift+1];
                 MotFlag = msgHolder[shift+2];
                 StimTime = msgHolder[shift+3]; 
                
-                Save_EEPROM(ActiveSens,tbloffset_nSens);
-                Save_EEPROM(MotFlag,tbloffset_MotFlag);  //change the state of motors (on/off)
-                Save_EEPROM(StimTime,tbloffset_StimTime);  //change the stimulation time
+//                Save_EEPROM(ActiveSens,tbloffset_nSens);
+//                Save_EEPROM(MotFlag,tbloffset_MotFlag);  //change the state of motors (on/off)
+//                Save_EEPROM(StimTime,tbloffset_StimTime);  //change the stimulation time
                 
-                outBuffer1[2] = (ActiveSens*7)+8;    //Output message length
                 outBuffer1[3] = MotFlag;
                 outBuffer1[4] = StimTime;   
-            } else {
-                // to do
-            }
             break;
-        case 7: // send data uart
+        case 7: // send data uart and stop BT
             StartRX = msgHolder[shift+1];
+            StartBT = msgHolder[shift+2];
             break;
         case 8: // send data bluetooth
             StartBT = msgHolder[shift+1];
             break;
-        case 9: // connect/disconnect BT
-            if(msgHolder[shift+1] == 0x00){
-                disconnect_BT();
-            }else{
-                connect_BT(BTMAC_computer);
-            }
-            break;
-        case 0x0A: // connect to new BTMAC 
-            if(msgHolder[shift-1] == 0xC){ // check BTMAC valid
-                if(BT_CONNECTED) bt_state = disconnect_BT();
-                StartBT = 0;
-                bt_state= connect_BT(&msgHolder[shift+1]);
-                if(bt_state == BT_CONNECTED){
-                    StartBT = 1;
-                    memcpy(&BTMAC_computer,&msgHolder[shift+1],6);
-                    
-                    // to-do update eeprom too
-                    
-                }
-            }
-            break;
-        case 0x0B: // set name
+        case 0x0B: // set device name
             if(msgHolder[shift-1] == 0xB){ // check name length is 5
                 rename_BT(&msgHolder[shift+1],5);
             }
@@ -715,14 +748,13 @@ void activateMotor(uint8_t s){
         MOT1=1;
         set_LED('R');
         CountVibr1 = 0;
-        redtime = 0;
     }
     if (s == 1) {
         MOT2=1;
         set_LED('B');
         CountVibr2 = 0;
-        bluetime = 0;
     }
+    ledtime=0;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -842,6 +874,21 @@ void set_LED(char led)
   }
 }
 
+void configure_sequence_MUXA(char s1, char s2){
+    
+    AD1CSSLbits.CSSL0 = 0; //Corresponding analog channel not selected for input scan
+    AD1CSSLbits.CSSL13 = 0; //Corresponding analog channel selected for input scan
+//    AD1CSSLbits.CSSL14 = 0; //Corresponding analog channel selected for input scan
+//    AD1CSSLbits.CSSL15 = 0; //Corresponding analog channel selected for input scan
+//    AD1CSSLbits.CSSL9 = 0; //Corresponding analog channel selected for input scan
+    
+    if (s1 == 0 || s2 == 0) AD1CSSLbits.CSSL0 = 1;   //We activate the channels based on the sensors we want
+    if (s1 == 1 || s2 == 1) AD1CSSLbits.CSSL13 = 1;  //to read it should work because at couples the channels 
+//    if (s1 == 2 || s2 == 2) AD1CSSLbits.CSSL0 = 1;   //are in increasing order.
+//    if (s1 == 3 || s2 == 3) AD1CSSLbits.CSSL13 = 1; // CHANGE TO L0 AND L13 FOR THE NEW BOARD
+//    if (s1 == 4 || s2 == 4) AD1CSSLbits.CSSL15 = 1;
+}
+
 
 void msgInit_BT(void) { 
     // follows CMD_DATA_REQ in proteusIII manual
@@ -877,7 +924,7 @@ void msgInit_BT(void) {
     outBuffer2[27] = calcCS_array(outBuffer2,27);
 }
 
-void msgUpdate_BT(void){
+void msgUpdate_BT(void){  
     // check outBuffer is correct.
     const uint8_t msgStart[4] = {0x02, 0x04, 0x17, 0x00};
     if(memcmp(outBuffer2,msgStart,4)){
