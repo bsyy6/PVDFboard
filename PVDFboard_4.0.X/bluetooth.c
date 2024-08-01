@@ -207,9 +207,6 @@ bt_states CMD_RSP_IND(const uint8_t flag,  uint16_t waitTime){
         getMsg(&b_inBuffer2, msgData2,&msgDataSize2);
         if(msgData2[1]==flag){
             return(BT_OK);
-        }else{
-            communicateError_BT(BT_STATUS_NOT_OK,NULL,0);
-            return(BT_STATUS_NOT_OK);
         }
     }
 
